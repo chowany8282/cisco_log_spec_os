@@ -143,11 +143,11 @@ st.title("🛡️ Cisco Technical AI Dashboard")
 tab0, tab1, tab2, tab3 = st.tabs(["🚨 특이 로그 선별 (Anomaly)", "📊 로그 정밀 분석", "🔍 하드웨어 스펙", "💿 OS 추천"])
 
 # ========================================================
-# [TAB 0] 로그 선별기 (특이 로그 필터링)
+# [TAB 0] 로그 선별기 (특이사항 집중 필터링)
 # ========================================================
 with tab0:
-    st.header("⚡ 특이 로그 정밀 선별 (Anomaly Detection)")
-    st.caption("일반적인 장애 로그는 제외하고, **시스템 크래시/메모리 오류 등 '특이한 로그'**만 찾아냅니다.")
+    st.header("⚡ 특이 로그 정밀 추출 (Significant Anomalies)")
+    st.caption("일상적인 로그는 모두 제거하고, **분석 가치가 있는 '특이 사항'**만 골라냅니다.")
     
     uploaded_file = st.file_uploader("📂 로그 파일 업로드 (txt, log)", type=["txt", "log"])
     raw_log_input = st.text_area("📝 또는 여기에 로그를 직접 붙여넣으세요:", height=200, key="raw_log_area")
@@ -172,27 +172,26 @@ with tab0:
         if not final_log_content:
             st.warning("로그를 입력해주세요!")
         else:
-            with st.spinner("🤖 AI가 시스템 크래시 및 특이 패턴을 분석 중..."):
-                # [수정된 프롬프트] 일반 장애 제외, 특이 로그(Anomaly) 집중
+            with st.spinner("🤖 AI가 '통상적인 로그'를 제거하고 '특이 사항'만 추출 중..."):
+                # [핵심 수정] 일반 장애도 제외, 오직 '특이 사항'만 타겟팅
                 prompt = f"""
-                당신은 Cisco TAC 최고 레벨 엔지니어입니다.
-                제공된 로그 중에서 **통상적이지 않은 '특이 로그(Anomaly/Crash/Error)'**만 정밀 선별하세요.
+                당신은 Cisco 로그 분석의 최종 권위자입니다.
+                제공된 로그에서 **'통상적인 운영 로그'는 완벽히 배제**하고, **엔지니어의 분석이 필요한 '특이 사항(Anomaly)'**만 정밀 추출하세요.
 
-                [AI 판단 기준 (Anomaly Detection)]
-                1. **무시할 로그 (Normal/Common):**
-                   - 단순 Link Flapping (Up/Down) - *중요하지 않음*
-                   - Config 저장, 로그인 성공/실패
-                   - 단순한 상태 변경 (State changed to Up/Down)
-                   - 일반적인 Info/Notice 레벨 메시지
-                2. **반드시 추출할 특이 로그 (Critical Anomalies):**
-                   - **System Crash/Traceback:** `Traceback`, `Crash`, `System Reset`, `Unexpected exception`
-                   - **Internal Error:** `Parity Error`, `ECC Error`, `ASIC Error`, `Memory Error`
-                   - **Resource Exhaustion:** `Malloc Fail`, `CPU Hog`, `Memory fragmentation`, `Process Crash`
-                   - **Severe Protocol Fail:** `BGP Notification`, `OSPF Neighbor Down` (단순 플래핑 제외)
-                   - **Environment:** `Overheating`, `Power Supply Fail`
-                3. **중복 압축:** 동일 패턴은 하나로 합치고 (총 N회) 표기.
+                [엄격한 필터링 기준]
+                1. **완벽 제거 대상 (Whitelist - 절대 출력 금지):**
+                   - Link Up/Down, Interface Flapping, Error-Disable (단순 포트 문제)
+                   - Config 저장, 로그인 이력, NTP/SNMP 메시지
+                   - OSPF/BGP/EIGRP 단순 Neighbor Change (Up/Down)
+                   - 일반적인 Info/Notice/Warning
+                2. **반드시 포함 대상 (Blacklist - 특이 사항):**
+                   - **System Integrity:** `Traceback`, `Crash`, `Stack dump`, `Watchdog`, `Unexpected exception`
+                   - **Hardware Fatal:** `Parity Error`, `ECC Error`, `Uncorrectable Error`, `ASIC Fail`
+                   - **Resource Critical:** `Malloc Fail`, `CPU Hog`, `Process Crash`, `Memory Leak`
+                   - **Security/Stability:** `Storm Control`, `BPDU Guard`, `Mac Flapping` (대량 발생 시), `Duplicate IP`
+                3. **요약:** 동일한 특이 로그는 1개로 압축하고 (총 N회 발생)으로 표기.
 
-                [중요: 출력 레이아웃]
+                [출력 레이아웃]
                 - **로그 코드 블록(Code Block)을 무조건 맨 위**에 배치하세요.
                 - 설명은 코드 블록 **아래**에 '└─' 기호를 써서 간략히 적으세요.
 
@@ -202,19 +201,19 @@ with tab0:
                 [출력 형식 예시]
                 ### 🚨 시스템 치명적 오류 (System Critical)
                 
-                **1. 시스템 크래시 발생 (총 1회 발생)**
+                **1. 프로세스 크래시 및 트레이스백 (총 1회 발생)**
                 ```
-                2024 Jan 31 21:03:03 %SYS-2-MALLOCFAIL: Memory allocation of 65536 bytes failed...
+                2024 Jan 31 21:03:03 %SYS-2-MALLOCFAIL: Memory allocation of 65536 bytes failed... (Traceback...)
                 ```
-                └─ (설명) 메모리 할당 실패로 인한 시스템 불안정 상태입니다.
+                └─ (설명) 메모리 할당 실패로 인한 시스템 프로세스 종료.
 
-                ### ⚠️ 하드웨어/내부 오류 (Internal Error)
+                ### ⚠️ 비정상 네트워크 동작 (Network Anomaly)
                 
-                **1. ASIC 패리티 에러 감지 (총 3회 발생)**
+                **1. 스톰 컨트롤 동작 감지 (총 50회 발생)**
                 ```
-                2024 Jan 31 22:00:00 %HARDWARE-3-ASIC_ERROR: Parity error detected on ASIC 0
+                2024 Jan 31 22:00:00 %STORM_CONTROL-3-FILTERED: A Broadcast storm detected on Et1/1
                 ```
-                └─ (설명) 칩셋 내부 데이터 오염이 감지되었습니다. 장비 교체가 권장됩니다.
+                └─ (설명) 브로드캐스트 스톰 발생으로 인한 트래픽 차단 동작. 루핑 점검 필요.
                 """
                 # API_KEY_OS 사용
                 classified_result = get_gemini_response(prompt, API_KEY_OS, 'os')
@@ -293,6 +292,8 @@ with tab2:
                 prompt = f"""
                 [대상 모델]: {model_input}
                 위 모델의 하드웨어 스펙을 표(Table)로 요약해주세요.
+                항목: Fixed Ports, Switching Capacity, Forwarding Rate, CPU/Memory, Power.
+                주요 특징 3가지 포함. 한국어 답변.
                 """
                 st.markdown(get_gemini_response(prompt, API_KEY_SPEC, 'spec'))
 
