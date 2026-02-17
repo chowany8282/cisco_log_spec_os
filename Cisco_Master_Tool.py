@@ -2,7 +2,7 @@ import streamlit as st
 import google.generativeai as genai
 import datetime
 from collections import Counter
-import re  # [핵심] 날짜/시간 제거를 위한 정규표현식
+import re  # [핵심] 날짜/시간 제거용
 
 # ========================================================
 # 🎨 페이지 기본 설정
@@ -72,11 +72,11 @@ st.title("🛡️ Cisco Technical AI Dashboard")
 tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 통합 분류", "📊 정밀 분석", "🔍 스펙 조회", "💿 OS 추천"])
 
 # ========================================================
-# [TAB 0] 로그 분류 (등급 통합 + 중복 제거)
+# [TAB 0] 로그 분류 (정상 로그 강력 필터링)
 # ========================================================
 with tab0:
     st.header("⚡ 장애/점검 로그 통합 리포트")
-    st.caption("Critical/Warning 구분 없이, **조치가 필요한 모든 로그**를 한 번에 보여줍니다.")
+    st.caption("정상(Up/Recovered) 로그와 단순 알림을 제외하고, **진짜 문제(Issue)**만 보여줍니다.")
     
     with st.form("upload_form", clear_on_submit=False):
         uploaded_file = st.file_uploader("📂 로그 파일 선택 (.txt, .log)", type=['txt', 'log'])
@@ -100,27 +100,39 @@ with tab0:
 
         if final_log:
             # ------------------------------------------------
-            # [SIMPLE LOGIC] 통합 이슈 카운터
+            # [LOGIC] 정상 로그 필터링 강화
             # ------------------------------------------------
-            issue_counter = Counter() # 등급 구분 없이 하나로 통합
-            
+            issue_counter = Counter()
             lines = final_log.splitlines()
             
-            # 1. 무시할 키워드 (False Alarm - 정상 로그)
+            # [1] 무시할 키워드 리스트 (여기에 있는 단어가 포함되면 무조건 제외)
+            # 정상 상태, 복구, 단순 정보, 관리자가 끈 것 등을 모두 포함
             ignore_keywords = [
-                "transceiver absent", "administratively down", "mgmt0", 
-                "default policer", "removed", "inserted", "vty", 
-                "last reset", "connection timed out", "changed state to up",
-                "link-keepalive", "dummy range"
+                "transceiver absent",       # SFP 없음 (정상)
+                "administratively down",    # 관리자가 끈 것 (정상)
+                "mgmt0",                    # 관리 포트 이슈 (보통 무시)
+                "default policer",          # CoPP 기본 정책 (정보성)
+                "removed", "inserted",      # 모듈/SFP 탈착 (작업 중 발생)
+                "changed state to up",      # 인터페이스 살아남 (정상)
+                "link-keepalive",           # 키퍼라이브 (정상)
+                "vty", "console",           # 로그인 관련 (보안 이슈 아니면 무시)
+                "last reset",               # 리부팅 기록
+                "connection timed out",     # 터미널 끊김 (단순)
+                "authentication success",   # 로그인 성공
+                "dummy range",              # 넥서스 더미 메시지
+                "online", "ready",          # 장비 정상 상태 진입
+                "recovery", "recovered",    # 복구됨
+                "neighbor up",              # 네이버 맺음 (정상)
+                "copy complete"             # 복사 완료
             ]
             
-            # 2. 이슈 키워드 (Critical + Warning 모두 포함)
-            # -0- ~ -4- 까지 모두 잡고, 주요 장애 키워드 포함
+            # [2] 이슈 키워드 (이게 있어야만 리포트에 포함)
             issue_keywords = [
-                "-0-", "-1-", "-2-", "-3-", "-4-", 
+                "-0-", "-1-", "-2-", "-3-", "-4-",   # 심각도 0~4
                 "traceback", "crash", "reload", "stuck", "panic", 
                 "error", "warning", "threshold", "exceeded", "buffer", 
-                "tahusd", "fail", "collision", "duplex mismatch", "down"
+                "tahusd", "fail", "collision", "duplex mismatch", 
+                "down", "authentication failed"
             ]
             
             for line in lines:
@@ -128,39 +140,42 @@ with tab0:
                 if not line_strip: continue
                 line_lower = line_strip.lower() 
                 
-                # 예외 처리 (무시할 것들)
+                # 1. 무시할 키워드가 하나라도 있으면 -> 패스 (삭제)
                 if any(x in line_lower for x in ignore_keywords):
                     continue 
 
-                # 메시지 정제 (Timestamp 제거)
+                # 2. 타임스탬프 제거 (내용만 추출)
                 if "%" in line_strip:
                     msg_start = line_strip.find("%")
                     clean_msg = line_strip[msg_start:]
                 else:
                     clean_msg = line_strip
 
-                # 이슈 키워드가 있으면 카운팅
+                # 3. 이슈 키워드가 포함되어 있어야만 -> 추가
+                # (그냥 잡다한 텍스트가 걸리는 것을 방지)
                 if any(k in clean_msg.lower() for k in issue_keywords):
                     issue_counter[clean_msg] += 1
                 
             # ------------------------------------------------
-            # [결과 출력] 통합 리포트
+            # [결과 출력]
             # ------------------------------------------------
             
             total_issues = sum(issue_counter.values())
             
             if total_issues > 0:
-                report_lines = [f"### 🚨 총 {total_issues}건의 이슈가 발견되었습니다."]
-                report_lines.append(f"> **중복 제거됨 (시간 정보 제외)**\n")
+                report_lines = [f"### 🚨 장애/점검 로그 리포트 (총 {total_issues}건)"]
+                report_lines.append(f"> **필터링 적용:** 정상 상태(Up), 단순 알림, 관리자 작업 로그 제외됨\n")
                 
-                # 많이 발생한 순서대로 출력
                 for log_msg, count in issue_counter.most_common():
                     if count > 1:
                         report_lines.append(f"- 🔴 `{log_msg}` **(x {count}건)**")
                     else:
                         report_lines.append(f"- 🔴 `{log_msg}`")
             else:
-                report_lines = ["### ✅ 특이사항 없음 (Clean)", "장애나 경고 수준의 로그가 발견되지 않았습니다."]
+                report_lines = [
+                    "### ✅ 발견된 장애 로그가 없습니다.",
+                    "모든 로그가 **정상(Info/Up/Recovered)**이거나 무시 목록에 포함되었습니다."
+                ]
             
             final_report = "\n".join(report_lines)
 
@@ -177,9 +192,9 @@ with tab0:
         st.markdown(st.session_state['res_class'])
         
         st.download_button(
-            label="📥 결과 리포트 저장 (txt)",
+            label="📥 리포트 저장 (txt)",
             data=st.session_state['res_class'],
-            file_name="Log_Issue_Report.txt",
+            file_name="Filtered_Issue_Report.txt",
             mime="text/plain",
             key="down_0"
         )
