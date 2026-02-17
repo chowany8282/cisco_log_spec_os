@@ -25,12 +25,10 @@ except:
     st.stop()
 
 # ========================================================
-# 💾 사용량 카운터 (API Counter 복구)
+# 💾 사용량 카운터
 # ========================================================
-# 세션이 초기화되어도 값 유지 (캐시 사용)
 @st.cache_resource
 def get_shared_usage_stats():
-    # 오늘 날짜와 카운터 0으로 초기화
     return {'date': str(datetime.date.today()), 'stats': {
         "log_lite": 0, "log_flash": 0, "log_pro": 0,
         "spec_lite": 0, "spec_flash": 0, "spec_pro": 0,
@@ -39,7 +37,6 @@ def get_shared_usage_stats():
 
 shared_data = get_shared_usage_stats()
 
-# 날짜 바뀌면 초기화 로직
 if shared_data['date'] != str(datetime.date.today()):
     shared_data['date'] = str(datetime.date.today())
     for k in shared_data['stats']: shared_data['stats'][k] = 0
@@ -51,7 +48,7 @@ def clear_spec_input(): st.session_state["input_spec"] = ""
 def clear_os_input(): st.session_state["os_model"] = ""; st.session_state["os_ver"] = ""
 
 # ========================================================
-# 🤖 사이드바 설정 (카운터 UI 복구)
+# 🤖 사이드바 설정
 # ========================================================
 with st.sidebar:
     st.header("🤖 엔진 설정")
@@ -67,10 +64,7 @@ with st.sidebar:
     st.subheader("📊 API 사용량 통계")
     st.caption(f"📅 {shared_data['date']} 기준")
 
-    # 카운터 표시 디자인
     stats = shared_data['stats']
-    
-    # CSS로 박스 디자인
     st.markdown("""
     <style>
     .stat-box {
@@ -109,7 +103,6 @@ def get_gemini_response(prompt, key, prefix):
         genai.configure(api_key=key)
         model = genai.GenerativeModel(MODEL_ID)
         response = model.generate_content(prompt)
-        # [카운터 증가 로직]
         shared_data['stats'][f"{prefix}_{m_type}"] += 1
         return response.text
     except Exception as e:
@@ -123,7 +116,7 @@ st.title("🛡️ Cisco Technical AI Dashboard")
 tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 통합 분류", "📊 정밀 분석", "🔍 스펙 조회", "💿 OS 추천"])
 
 # ========================================================
-# [TAB 0] 로그 분류 (Up/Down 필터링 + 복사 버튼)
+# [TAB 0] 로그 분류
 # ========================================================
 with tab0:
     st.header("⚡ 장애 로그 필터링 (복사 가능)")
@@ -150,31 +143,24 @@ with tab0:
             final_log = raw_log_input
 
         if final_log:
-            # ------------------------------------------------
-            # [LOGIC] 필터링 (Up/Down 제외 추가)
-            # ------------------------------------------------
             issue_counter = Counter()
             lines = final_log.splitlines()
             
-            # 1. 무시할 키워드 (Up/Down 추가됨)
             ignore_keywords = [
                 "transceiver absent", "administratively down", "mgmt0", 
                 "default policer", "removed", "inserted", "vty", 
                 "last reset", "connection timed out", "changed state to up",
                 "link-keepalive", "dummy range", "online", "ready", 
                 "recovery", "recovered", "neighbor up", "copy complete",
-                # [추가됨] 인터페이스 Up/Down 로그 제외
                 "changed state to down", "link-3-updown", "lineproto-5-updown"
             ]
             
-            # 2. 이슈 키워드
             issue_keywords = [
                 "-0-", "-1-", "-2-", "-3-", "-4-", 
                 "traceback", "crash", "reload", "stuck", "panic", 
                 "error", "warning", "threshold", "exceeded", "buffer", 
                 "tahusd", "fail", "collision", "duplex mismatch", 
                 "authentication failed"
-                # "down" 키워드는 너무 흔해서 뺐습니다. (위에서 changed state to down을 걸렀으므로)
             ]
             
             for line in lines:
@@ -182,24 +168,16 @@ with tab0:
                 if not line_strip: continue
                 line_lower = line_strip.lower() 
                 
-                # 예외 처리
-                if any(x in line_lower for x in ignore_keywords):
-                    continue 
+                if any(x in line_lower for x in ignore_keywords): continue 
 
-                # 메시지 정제
                 if "%" in line_strip:
                     msg_start = line_strip.find("%")
                     clean_msg = line_strip[msg_start:]
                 else:
                     clean_msg = line_strip
 
-                # 이슈 키워드 체크
                 if any(k in clean_msg.lower() for k in issue_keywords):
                     issue_counter[clean_msg] += 1
-                
-            # ------------------------------------------------
-            # [결과 출력] st.code()를 사용하여 복사 버튼 제공
-            # ------------------------------------------------
             
             total_issues = sum(issue_counter.values())
             
@@ -208,16 +186,9 @@ with tab0:
                 st.markdown("> 각 로그 우측 상단의 **📄 아이콘**을 누르면 복사됩니다.")
                 
                 for log_msg, count in issue_counter.most_common():
-                    # (x N건) 표시를 붙여서 출력
-                    if count > 1:
-                        display_text = f"{log_msg} (x {count}건)"
-                    else:
-                        display_text = log_msg
-                    
-                    # [핵심] st.code를 쓰면 복사 버튼이 자동으로 생김
+                    display_text = f"{log_msg} (x {count}건)" if count > 1 else log_msg
                     st.code(display_text, language="text")
                     
-                # 파일 저장용 텍스트 생성
                 file_lines = []
                 for log_msg, count in issue_counter.most_common():
                     file_lines.append(f"{log_msg} (x {count}건)" if count > 1 else log_msg)
@@ -229,14 +200,12 @@ with tab0:
                 st.info("참고: Interface Up/Down 및 단순 알림 로그는 제외되었습니다.")
                 final_report_text = "No critical issues found."
 
-            # 결과 저장 (세션)
             st.session_state['res_class'] = final_report_text
             st.session_state['log_buf'] = final_log
             
         else:
             st.warning("로그를 입력하세요.")
 
-    # 파일 다운로드 버튼 (결과가 있을 때만)
     if 'res_class' in st.session_state and st.session_state['res_class'] != "No critical issues found.":
         st.download_button(
             label="📥 결과 리포트 저장 (txt)",
@@ -246,17 +215,31 @@ with tab0:
             key="down_0"
         )
         
+        # [수정된 복사 버튼 로직]
         if st.button("📝 정밀 분석 탭으로 복사"):
-            st.session_state['log_transfer'] = st.session_state.get('log_buf', "")
+            source_log = st.session_state.get('log_buf', "")
+            # 1. 전달할 데이터 저장
+            st.session_state['log_transfer'] = source_log
+            # 2. [핵심] 다음 탭의 입력창 위젯(Key)에 강제로 값 주입
+            st.session_state['log_analysis_area'] = source_log
             st.success("복사 완료! 옆 탭으로 이동하세요.")
 
 # ========================================================
-# [TAB 1] 정밀 분석
+# [TAB 1] 정밀 분석 (수정: Session State 연동)
 # ========================================================
 with tab1:
     st.header("🕵️‍♀️ 심층 분석 (RCA)")
-    val = st.session_state.get('log_transfer', "")
-    log_in = st.text_area("로그 입력:", value=val, height=200, key="log_analysis_area")
+    
+    # [수정] 위젯 키(log_analysis_area)가 없으면 초기화
+    if 'log_analysis_area' not in st.session_state:
+        st.session_state['log_analysis_area'] = st.session_state.get('log_transfer', "")
+
+    # text_area의 값을 session_state와 key로 직접 연동
+    log_in = st.text_area(
+        "로그 입력:", 
+        height=200, 
+        key="log_analysis_area"  # 이 키를 통해 Tab0에서 값을 주입받음
+    )
     
     col1, col2 = st.columns([1, 6])
     with col1:
