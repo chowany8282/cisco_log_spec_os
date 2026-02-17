@@ -143,7 +143,7 @@ st.title("🛡️ Cisco Technical AI Dashboard")
 tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 선별 (AI Filter)", "📊 로그 정밀 분석", "🔍 하드웨어 스펙", "💿 OS 추천"])
 
 # ========================================================
-# [TAB 0] 로그 선별기 (AI 스마트 필터링 적용)
+# [TAB 0] 로그 선별기 (버튼 삭제 + 로그를 '앞'으로 이동)
 # ========================================================
 with tab0:
     st.header("⚡ 스마트 로그 선별 (Smart Action)")
@@ -178,61 +178,57 @@ with tab0:
                 제공된 로그 중에서 **엔지니어가 반드시 확인하고 조치해야 하는 '실질적인 장애 로그'**만 선별하세요.
 
                 [AI 스마트 필터링 규칙]
-                1. **무시할 로그 (과감히 제외):** - 단순한 Link Up/Down (단발성)
-                   - Config 저장 메시지 (Configured from console)
-                   - 정상적인 상태 변경 (Changed state to up)
+                1. **무시할 로그 (과감히 제외):**
+                   - 단순한 Link Up/Down (단발성)
+                   - Config 저장 메시지, 정상 상태 변경
                    - 날짜/시간(Timestamp)이 없는 로그
                 2. **추출할 로그 (필수 체크):**
-                   - 하드웨어 고장 (Fan, Power, Module, SFP Fail)
-                   - 환경 경보 (Temperature, Voltage)
-                   - 주요 프로토콜 다운 (OSPF, BGP, EIGRP Neighbor Down)
-                   - 시스템 리소스 (CPU, Memory, Buffer Exceeded)
-                   - 반복적인 링크 플래핑 (Flapping) 또는 에러 (CRC, Input Error)
+                   - 하드웨어 고장, 환경 경보(온도/전압), 주요 프로토콜 다운
+                   - 시스템 리소스 부족, 반복적인 에러/플래핑
                 3. **중복 압축:** 같은 로그는 하나로 합치고 (총 N회)로 표기하세요.
+
+                [중요: 출력 순서 변경]
+                - **로그 코드 블록(Code Block)을 가장 먼저(맨 앞)에 배치하세요.**
+                - 설명은 그 로그 아래에 적으세요.
+                - 이렇게 해야 사용자가 로그를 바로 복사할 수 있습니다.
 
                 [입력 데이터]
                 {final_log_content}
 
-                [출력 형식]
+                [출력 형식 예시]
                 ### 🚨 조치 필수 (Immediate Action)
-                - 하드웨어 교체나 긴급 설정 변경이 필요한 치명적 오류
                 
-                **1. (간략 설명) 모듈 1번 하드웨어 고장 (총 5회)**
+                **1. 모듈 1번 하드웨어 고장 (총 5회)**
                 ```
                 2024 Jan 31 21:03:03 %MODULE-2-FAILED: Module 1 failed
                 ```
+                └─ (설명) 하드웨어 교체가 필요합니다.
 
                 ### ⚠️ 정밀 점검 필요 (Investigation Needed)
-                - 당장은 서비스가 되지만 방치하면 장애로 이어질 수 있는 전조 증상
                 
-                **1. (간략 설명) 1번 슬롯 버퍼 임계값 초과 (총 120회)**
+                **1. 1번 슬롯 버퍼 임계값 초과 (총 120회)**
                 ```
                 2024 Jan 31 22:00:00 %TAHUSD-4-BUFFER_THRESHOLD: Buffer threshold exceeded
                 ```
+                └─ (설명) 트래픽 폭주 또는 병목 현상이 의심됩니다.
                 """
                 # API_KEY_OS 사용
                 classified_result = get_gemini_response(prompt, API_KEY_OS, 'os')
                 st.session_state['classified_result'] = classified_result 
-                st.session_state['log_transfer_buffer'] = classified_result 
                 
     if 'classified_result' in st.session_state:
         st.markdown("---")
         st.subheader("🎯 AI 선별 결과 (Actionable Items)")
         st.markdown(st.session_state['classified_result'])
-        
-        st.success("👆 로그 우측 상단의 'Copy' 아이콘을 눌러 개별 복사도 가능합니다.")
-        
-        if st.button("📝 선별된 로그를 '로그 정밀 분석' 탭으로 복사하기"):
-             st.session_state['log_transfer'] = st.session_state['classified_result']
-             st.success("✅ 로그가 복사되었습니다! 상단의 '📊 로그 정밀 분석' 탭을 눌러 이동하세요.")
+        # 전송 버튼(복사 버튼)은 요청하신 대로 삭제했습니다.
 
 # ========================================================
 # [TAB 1] 로그 분석기
 # ========================================================
 with tab1:
     st.header("로그 분석 및 장애 진단")
-    default_log_value = st.session_state.get('log_transfer', "")
-    log_input = st.text_area("분석할 로그를 입력하세요:", value=default_log_value, height=150, key="log_analysis_area")
+    # 자동 전송 기능 제거됨, 순수 수동 입력
+    log_input = st.text_area("분석할 로그를 입력하세요:", height=150, key="log_analysis_area")
     
     c1, c2 = st.columns([1, 6])
     with c1:
