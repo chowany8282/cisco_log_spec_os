@@ -19,11 +19,11 @@ try:
     API_KEY_SPEC = st.secrets["API_KEY_SPEC"]
     API_KEY_OS = st.secrets["API_KEY_OS"]
 except:
-    st.error("🚨 API 키를 찾을 수 없습니다.")
+    st.error("🚨 API 키를 찾을 수 없습니다. secrets.toml을 확인하세요.")
     st.stop()
 
 # ========================================================
-# 💾 사용량 카운터 설정
+# 💾 사용량 카운터 & 초기화
 # ========================================================
 usage_keys = ["log_lite", "log_flash", "log_pro", "spec_lite", "spec_flash", "spec_pro", "os_lite", "os_flash", "os_pro"]
 
@@ -33,9 +33,7 @@ def get_shared_usage_stats():
 
 shared_data = get_shared_usage_stats()
 
-# ========================================================
-# 🧹 입력창 초기화 함수들
-# ========================================================
+# 입력창 초기화 함수들
 def clear_log_input(): st.session_state["raw_log_area"] = ""
 def clear_analysis_input(): st.session_state["log_analysis_area"] = ""
 def clear_spec_input(): st.session_state["input_spec"] = ""
@@ -59,9 +57,9 @@ def get_gemini_response(prompt, key, prefix):
     try:
         genai.configure(api_key=key)
         model = genai.GenerativeModel(MODEL_ID)
-        res = model.generate_content(prompt)
+        response = model.generate_content(prompt)
         shared_data['stats'][f"{prefix}_{m_type}"] += 1
-        return res.text
+        return response.text
     except Exception as e:
         return f"Error: {str(e)}"
 
@@ -70,17 +68,18 @@ def get_gemini_response(prompt, key, prefix):
 # ========================================================
 st.title("🛡️ Cisco Technical AI Dashboard")
 
-tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 분류", "📊 정밀 분석", "🔍 스펙 조회", "💿 OS 추천"])
+tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 분류 (New)", "📊 정밀 분석", "🔍 스펙 조회", "💿 OS 추천"])
 
 # ========================================================
-# [TAB 0] 로그 분류 (분류 성능 대폭 강화)
+# [TAB 0] 로그 분류기 (완전히 새로 만든 버전)
 # ========================================================
 with tab0:
-    st.header("⚡ 로그 자동 분류")
+    st.header("⚡ 로그 패턴 자동 분류기")
+    st.caption("중복되는 로그를 하나로 묶고, 심각도 별로 표(Table)로 정리합니다.")
     
-    # 1. 파일 제한 및 폼 설정
+    # 입력 폼
     with st.form("upload_form", clear_on_submit=False):
-        uploaded_file = st.file_uploader("📂 로그 파일 선택 (.txt, .log 만 가능)", type=['txt', 'log'])
+        uploaded_file = st.file_uploader("📂 로그 파일 (.log, .txt)", type=['txt', 'log'])
         raw_log_input = st.text_area("📝 또는 로그 붙여넣기:", height=200, key="raw_log_area")
         submitted = st.form_submit_button("🚀 분류 실행")
 
@@ -88,6 +87,7 @@ with tab0:
 
     if submitted:
         final_log = ""
+        # 1. 파일 읽기
         if uploaded_file:
             try:
                 bytes_data = uploaded_file.getvalue()
@@ -99,64 +99,44 @@ with tab0:
         elif raw_log_input:
             final_log = raw_log_input
 
+        # 2. 분석 실행
         if final_log:
-            with st.spinner("로그 패턴 정밀 분석 중... (잡다한 로그 제거 중)"):
-                # [🔥 핵심 수정] 프롬프트를 아주 구체적으로 변경하여 분류 정확도 향상
+            with st.spinner("로그 패턴 분석 및 중복 제거 중..."):
+                # [🔥 강력해진 프롬프트] 표 형식 강제, 중복 카운트 지시
                 prompt = f"""
-                당신은 Cisco 본사의 **Senior TAC 엔지니어**입니다.
-                제공된 로그 파일에서 **장애 원인 분석에 필요한 핵심 로그**만 추출하여 분류하세요.
-                
-                [🚨 분류 기준 (Strict Rules)]
-                1. **Critical (즉시 조치 필요):** - 장비 Crash, 재부팅(Reload), 모듈 Fail, Power Fail, Fan Fail.
-                   - OSPF/BGP/EIGRP Neighbor Down (단, 의도적 종료 제외).
-                   - Interface Link Down (단, 'Admin down'이나 'Transceiver Absent'는 제외).
-                   - 온도 경보(Over Temperature).
+                당신은 Cisco 로그 분석기입니다. 입력된 로그를 파싱하여 아래 규칙대로 정리하세요.
 
-                2. **Warning (점검 필요):** - CPU/Memory High Usage (임계치 초과).
-                   - Smart License 관련 인증 실패/만료.
-                   - SFP 트랜시버 호환성 경고 (Unqualified/Not Supported).
-                   - Port-Security Violation (포트 보안 위반).
-                   - Duplex Mismatch.
-
-                3. **Info (주요 변경 사항):** - Config 변경 내역(Configure terminal).
-                   - 사용자 로그인/로그아웃.
-                   - (주의: 단순한 Up/Down 반복이나 상태 조회 로그는 과감히 생략하세요.)
+                [분석 규칙]
+                1. **중복 제거:** 동일한 로그 메시지는 하나로 묶고 '발생 횟수(Count)'를 세세요.
+                2. **심각도 분류 (Severity Parsing):**
+                   - 로그 내의 %FACILITY-0, -1, -2 -> 🔴 Critical
+                   - 로그 내의 %FACILITY-3, -4 -> 🟡 Warning
+                   - 로그 내의 %FACILITY-5, -6, -7 -> 🔵 Info
+                3. **불필요 제거:** 단순한 `Configured from vty` 같은 로그는 제외하세요.
 
                 [출력 형식]
-                전체 로그를 다 보여주지 말고, **같은 유형의 로그는 하나로 묶어서** 요약하세요.
-                
-                ### 🔴 Critical
-                **1. 모듈 2번 장애 발생 (Module Failed)**
-                - **발생 횟수:** 1회
-                - **설명:** 모듈 2번이 응답하지 않아 시스템에서 격리되었습니다.
-                ```
-                %MODULE-2-FAILED: Module 2 failed
-                ```
+                반드시 **Markdown 표(Table)** 형식으로만 출력하세요. 설명글은 최소화하세요.
 
-                ### 🟡 Warning
-                **1. 스마트 라이선스 인증 실패**
-                - **발생 횟수:** 다수
-                - **설명:** 라이선스 서버와 통신이 되지 않아 인증이 실패했습니다.
-                ```
-                %SMART_LIC-3-AUTHORIZATION_FAILED: ...
-                ```
+                | 심각도 | 발생 횟수 | 로그 메시지 패턴 (요약) | 원인 및 조치 권고 |
+                |---|---|---|---|
+                | 🔴 Critical | 5 | %MODULE-2-FAILED: Module 1 failed | 모듈 하드웨어 불량 의심. `show mod` 확인 필요 |
+                | 🟡 Warning | 12 | %ETHPORT-5-IF_DOWN_LINK_FAILURE | 케이블/SFP 이슈 또는 상대방 장비 Down 점검 |
 
-                [입력 로그 데이터]
-                {final_log[:50000]} 
+                [입력 로그]
+                {final_log[:40000]}
                 """
-                # (로그가 너무 길면 잘릴 수 있어서 5만 자로 제한)
-
+                
                 res = get_gemini_response(prompt, API_KEY_LOG, 'log')
                 
+                # 결과 저장
                 st.session_state['res_class'] = res
                 st.session_state['log_buf'] = final_log
         else:
-            st.warning("파일을 선택하거나 내용을 입력하세요.")
+            st.warning("로그를 입력해주세요.")
 
-    # 결과 화면 및 다운로드
+    # 결과 표시 및 다운로드
     if 'res_class' in st.session_state:
         st.markdown("---")
-        st.subheader("🎯 분석 제안")
         st.markdown(st.session_state['res_class'], unsafe_allow_html=True)
         
         st.download_button(
@@ -172,10 +152,10 @@ with tab0:
             st.success("복사 완료! 옆 탭으로 이동하세요.")
 
 # ========================================================
-# [TAB 1] 정밀 분석 (다운로드 고침)
+# [TAB 1] 정밀 분석 (RCA)
 # ========================================================
 with tab1:
-    st.header("🕵️‍♀️ 심층 분석 (RCA)")
+    st.header("🕵️‍♀️ 심층 분석 (Root Cause)")
     val = st.session_state.get('log_transfer', "")
     log_in = st.text_area("로그 입력:", value=val, height=200, key="log_analysis_area")
     
@@ -185,11 +165,11 @@ with tab1:
             if log_in:
                 with st.spinner("분석 중..."):
                     prompt = f"""
-                    Cisco Tier 3 엔지니어 관점에서 근본 원인(Root Cause)과 해결책(CLI)을 제시하세요.
-                    **한글**로 답변하고, 다음 항목을 포함하세요:
-                    1. 근본 원인 (Root Cause)
-                    2. 서비스 영향도 (Impact)
-                    3. 조치 방법 (Action Plan - 구체적 명령어 포함)
+                    Cisco Tier 3 엔지니어 관점에서 다음 로그의 **근본 원인(Root Cause)**을 분석하세요.
+                    **출력 형식:**
+                    1. 🎯 근본 원인
+                    2. 📉 영향도
+                    3. 🛠️ 해결 방법 (구체적 CLI 명령어 포함)
                     
                     [로그] {log_in[:30000]}
                     """
@@ -211,7 +191,7 @@ with tab1:
         )
 
 # ========================================================
-# [TAB 2] 스펙 조회 (다운로드 고침)
+# [TAB 2] 스펙 조회
 # ========================================================
 with tab2:
     st.header("스펙 조회")
@@ -222,7 +202,7 @@ with tab2:
         if st.button("조회 실행"):
             if m_in:
                 with st.spinner("검색 중..."):
-                    res = get_gemini_response(f"{m_in} 하드웨어 스펙 표로 정리", API_KEY_SPEC, 'spec')
+                    res = get_gemini_response(f"{m_in} 하드웨어 스펙 표로 정리 (Port, Power, CPU 등)", API_KEY_SPEC, 'spec')
                     st.session_state['res_spec'] = res
             else:
                 st.warning("모델명을 입력하세요.")
@@ -240,7 +220,7 @@ with tab2:
         )
 
 # ========================================================
-# [TAB 3] OS 추천 (다운로드 고침)
+# [TAB 3] OS 추천
 # ========================================================
 with tab3:
     st.header("OS 추천")
