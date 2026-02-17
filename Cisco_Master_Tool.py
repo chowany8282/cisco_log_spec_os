@@ -20,17 +20,14 @@ try:
     API_KEY_SPEC = st.secrets["API_KEY_SPEC"]
     API_KEY_OS = st.secrets["API_KEY_OS"]
 except Exception as e:
-    st.error("🚨 API 키를 찾을 수 없습니다.")
+    st.error("🚨 API 키를 찾을 수 없습니다. secrets.toml 파일을 확인해주세요.")
     st.stop()
 
 # ========================================================
 # 💾 사용량 카운터 설정
 # ========================================================
-usage_keys = [
-    "log_lite", "log_flash", "log_pro",
-    "spec_lite", "spec_flash", "spec_pro",
-    "os_lite", "os_flash", "os_pro"
-]
+# 모델 구분 없이 통합 카운팅 (오류 방지)
+usage_keys = ["log_cnt", "spec_cnt", "os_cnt"]
 
 @st.cache_resource
 def get_shared_usage_stats():
@@ -65,65 +62,71 @@ def clear_os_input():
     st.session_state["os_ver"] = ""
 
 # ========================================================
-# 🤖 사이드바 설정 (모델 메뉴 수정됨)
+# 🕵️‍♂️ [NEW] 모델 자동 탐색 기능 (404 에러 원천 차단)
+# ========================================================
+@st.cache_resource
+def get_working_model_id(api_key):
+    """
+    API 키를 사용해 실제 사용 가능한 모델 목록을 조회하고,
+    가장 적합한 모델 ID를 자동으로 반환합니다.
+    """
+    try:
+        genai.configure(api_key=api_key)
+        # 1. 사용 가능한 모든 모델 리스트 가져오기
+        all_models = list(genai.list_models())
+        
+        # 2. 텍스트 생성(generateContent)이 가능한 모델만 필터링
+        text_models = [m.name for m in all_models if 'generateContent' in m.supported_generation_methods]
+        
+        if not text_models:
+            return "models/gemini-pro" # fallback
+
+        # 3. 우선순위대로 모델 찾기 (Flash -> Pro -> 1.0)
+        # 1.5 Flash가 있으면 최우선 (가성비/속도)
+        for m in text_models:
+            if 'gemini-1.5-flash' in m and 'latest' not in m: return m
+        
+        # 1.5 Pro가 있으면 차선
+        for m in text_models:
+            if 'gemini-1.5-pro' in m and 'latest' not in m: return m
+            
+        # 1.0 Pro (gemini-pro)
+        for m in text_models:
+            if 'gemini-pro' in m and 'vision' not in m: return m
+            
+        # 다 없으면 그냥 첫 번째꺼 리턴
+        return text_models[0]
+        
+    except Exception as e:
+        # 리스트 조회 실패 시 가장 기본 모델 강제 지정
+        return "models/gemini-pro"
+
+# ========================================================
+# 🤖 사이드바 설정
 # ========================================================
 with st.sidebar:
     st.header("🤖 엔진 설정")
     
-    # [수정] 모델 선택 리스트에 '1.5 Flash' 추가
-    selected_model_name = st.selectbox(
-        "사용할 AI 모델을 선택하세요:",
-        (
-            "Gemini 1.5 Flash (안정성/로그분석 추천)",  # 추가됨
-            "Gemini 2.0 Flash (최신/균형)",
-            "Gemini 2.0 Flash Lite (초고속/가성비)"
-        )
-    )
+    # [핵심] 자동으로 찾은 모델 ID 할당
+    MODEL_ID = get_working_model_id(API_KEY_LOG)
     
-    # [수정] 모델 매핑 로직 (정확한 ID 연결)
-    if "1.5 Flash" in selected_model_name: 
-        MODEL_ID = "models/gemini-1.5-flash"
-        current_model_type = "flash"
-    elif "2.0 Flash Lite" in selected_model_name: 
-        MODEL_ID = "models/gemini-2.0-flash-lite-preview-02-05" # 최신 라이트 버전
-        current_model_type = "lite"
-    else: 
-        MODEL_ID = "models/gemini-2.0-flash" # 기본 2.0 Flash
-        current_model_type = "pro" # 편의상 pro 카운터로 분류
+    if MODEL_ID:
+        st.success(f"✅ 연결 성공!\n모델: {MODEL_ID.replace('models/', '')}")
+    else:
+        st.error("❌ 사용 가능한 모델을 찾지 못했습니다.")
 
-    st.success(f"선택됨: {selected_model_name}")
     st.markdown("---")
-
     st.markdown("### 📊 일일 누적 사용량")
-    st.caption(f"📅 {today_str} 기준 (서버 유지)")
+    st.caption(f"📅 {today_str} 기준")
 
-    count_style = """
-    <style>
-        .usage-box { margin-bottom: 15px; padding: 10px; background-color: #f0f2f6; border-radius: 5px; }
-        .usage-title { font-weight: bold; font-size: 14px; margin-bottom: 5px; color: #31333F; }
-        .usage-item { font-size: 13px; color: #555; display: flex; justify-content: space-between; }
-        .usage-num { font-weight: bold; color: #0068c9; }
-    </style>
-    """
-    st.markdown(count_style, unsafe_allow_html=True)
+    # 카운터 표시
+    log_c = shared_data['stats']['log_cnt']
+    spec_c = shared_data['stats']['spec_cnt']
+    os_c = shared_data['stats']['os_cnt']
 
-    def draw_usage(title, prefix):
-        lite = shared_data['stats'][f"{prefix}_lite"]
-        flash = shared_data['stats'][f"{prefix}_flash"]
-        pro = shared_data['stats'][f"{prefix}_pro"]
-        
-        st.markdown(f"""
-        <div class="usage-box">
-            <div class="usage-title">{title}</div>
-            <div class="usage-item"><span>🔹 Lite</span> <span class="usage-num">{lite}회</span></div>
-            <div class="usage-item"><span>⚡ Flash</span> <span class="usage-num">{flash}회</span></div>
-            <div class="usage-item"><span>🚀 Pro</span> <span class="usage-num">{pro}회</span></div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    draw_usage("📊 로그 분석 (Log Key)", "log")
-    draw_usage("🔍 스펙 조회 (Spec Key)", "spec")
-    draw_usage("💿 OS 추천 & 선별 (OS Key)", "os")
+    st.text(f"📊 로그 분석: {log_c}회")
+    st.text(f"🔍 스펙 조회: {spec_c}회")
+    st.text(f"💿 OS 추천:  {os_c}회")
 
     st.markdown("---")
     st.markdown("Created by Wan Hee Cho")
@@ -136,11 +139,14 @@ def get_gemini_response(prompt, current_api_key, func_prefix):
         genai.configure(api_key=current_api_key)
         model = genai.GenerativeModel(MODEL_ID)
         response = model.generate_content(prompt)
-        count_key = f"{func_prefix}_{current_model_type}"
+        
+        # 카운트 증가
+        count_key = f"{func_prefix}_cnt"
         shared_data['stats'][count_key] += 1
+        
         return response.text
     except Exception as e:
-        return f"System Error: {str(e)}"
+        return f"🚨 시스템 에러: {str(e)}\n(모델 ID: {MODEL_ID})"
 
 # ========================================================
 # 🖥️ 메인 화면 구성
@@ -179,7 +185,7 @@ with tab0:
         if not final_log_content:
             st.warning("로그를 입력해주세요!")
         else:
-            with st.spinner("🤖 AI가 '통상적인 로그'를 제거하고 '특이 사항'만 추출 중..."):
+            with st.spinner(f"🤖 AI({MODEL_ID.split('/')[-1]})가 특이 로그를 분석 중..."):
                 prompt = f"""
                 당신은 Cisco 로그 분석의 최종 권위자입니다.
                 제공된 로그에서 **'통상적인 운영 로그'는 완벽히 배제**하고, **엔지니어의 분석이 필요한 '특이 사항(Anomaly)'**만 정밀 추출하세요.
@@ -221,6 +227,7 @@ with tab0:
                 ```
                 └─ (설명) 브로드캐스트 스톰 발생으로 인한 트래픽 차단 동작. 루핑 점검 필요.
                 """
+                # API_KEY_OS 사용
                 classified_result = get_gemini_response(prompt, API_KEY_OS, 'os')
                 st.session_state['classified_result'] = classified_result 
                 
@@ -297,6 +304,8 @@ with tab2:
                 prompt = f"""
                 [대상 모델]: {model_input}
                 위 모델의 하드웨어 스펙을 표(Table)로 요약해주세요.
+                항목: Fixed Ports, Switching Capacity, Forwarding Rate, CPU/Memory, Power.
+                주요 특징 3가지 포함. 한국어 답변.
                 """
                 st.markdown(get_gemini_response(prompt, API_KEY_SPEC, 'spec'))
 
