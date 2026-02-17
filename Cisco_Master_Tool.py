@@ -1,7 +1,8 @@
 import streamlit as st
 import google.generativeai as genai
 import datetime
-from collections import Counter # [핵심] 중복 제거 및 카운팅 도구
+from collections import Counter
+import re  # [핵심] 날짜/시간 제거를 위한 정규표현식 도구
 
 # ========================================================
 # 🎨 페이지 기본 설정
@@ -13,7 +14,7 @@ st.set_page_config(
 )
 
 # ========================================================
-# 🔑 사용자 API 키 설정 (다른 탭에서 AI 쓸 때 필요)
+# 🔑 사용자 API 키 설정
 # ========================================================
 try:
     API_KEY_LOG = st.secrets["API_KEY_LOG"]
@@ -52,7 +53,7 @@ with st.sidebar:
     
     st.success(f"선택: {model_opt}")
 
-# AI 호출 함수 (정밀 분석용)
+# AI 호출 함수
 def get_gemini_response(prompt, key, prefix):
     try:
         genai.configure(api_key=key)
@@ -68,14 +69,14 @@ def get_gemini_response(prompt, key, prefix):
 # ========================================================
 st.title("🛡️ Cisco Technical AI Dashboard")
 
-tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 분류 (Logic)", "📊 정밀 분석", "🔍 스펙 조회", "💿 OS 추천"])
+tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 분류 (스마트 중복제거)", "📊 정밀 분석", "🔍 스펙 조회", "💿 OS 추천"])
 
 # ========================================================
-# [TAB 0] 로그 분류 (순수 Python 로직 - AI 미사용)
+# [TAB 0] 로그 분류 (시간 제거 후 중복 합치기)
 # ========================================================
 with tab0:
-    st.header("⚡ 로그 정밀 분류 (Rule-Based)")
-    st.caption("AI를 거치지 않고, **시스코 심각도 규칙(Severity)**에 따라 즉시 분류합니다.")
+    st.header("⚡ 핵심 장애 로그 분류 (시간 제외 중복 합침)")
+    st.caption("시간이 달라도 내용이 같으면 하나로 합칩니다. **(Info 로그 제외)**")
     
     with st.form("upload_form", clear_on_submit=False):
         uploaded_file = st.file_uploader("📂 로그 파일 선택 (.txt, .log)", type=['txt', 'log'])
@@ -99,24 +100,19 @@ with tab0:
 
         if final_log:
             # ------------------------------------------------
-            # [PURE LOGIC] Counter 사용 (AI 제거됨)
+            # [SMART LOGIC] 시간 자르고 메시지만 추출
             # ------------------------------------------------
             crit_counter = Counter()
             warn_counter = Counter()
             
             lines = final_log.splitlines()
             
-            # [분류 필터]
-            # 1. 무시할 것들 (False Alarm)
-            ignore_keywords = ["transceiver absent", "administratively down", "mgmt0", "default policer", "removed", "inserted", "vty", "last reset"]
+            # 무시할 키워드
+            ignore_keywords = ["transceiver absent", "administratively down", "mgmt0", "default policer", "removed", "inserted", "vty", "last reset", "connection timed out"]
             
-            # 2. Critical (0, 1, 2)
-            crit_keywords = ["-0-", "-1-", "-2-", "traceback", "crash", "reload", "stuck", "panic", "critical", "emergency", "alert"]
-            
-            # 3. Warning (3, 4)
+            # 핵심 키워드
+            crit_keywords = ["-0-", "-1-", "-2-", "traceback", "crash", "reload", "stuck", "panic"]
             warn_keywords = ["-3-", "-4-", "error", "warning", "threshold", "exceeded", "buffer", "tahusd", "fail", "collision", "duplex mismatch"]
-            
-            total_count = 0
             
             for line in lines:
                 line_strip = line.strip()
@@ -127,39 +123,52 @@ with tab0:
                 if any(x in line_lower for x in ignore_keywords):
                     continue 
 
-                # 1. Critical
-                if any(x in line_lower for x in crit_keywords):
-                    crit_counter[line_strip] += 1
-                    total_count += 1
+                # 1. 메시지 정제 (Timestamp 제거)
+                # Cisco 로그는 보통 "%FACILITY..." 로 시작하는 부분이 진짜 메시지입니다.
+                # '%' 문자가 있으면 그 뒤부터 가져오고, 없으면 통째로 씁니다.
+                if "%" in line_strip:
+                    # % 문자 위치 찾기
+                    msg_start = line_strip.find("%")
+                    # 날짜/시간 잘라내고 진짜 메시지만 남김 (예: %ETHPORT-5-IF_DOWN...)
+                    clean_msg = line_strip[msg_start:]
+                else:
+                    # %가 없는 로그는 그냥 통째로 씁니다.
+                    clean_msg = line_strip
+
+                # 2. Critical 분류
+                if any(x in clean_msg.lower() for x in crit_keywords):
+                    crit_counter[clean_msg] += 1
                 
-                # 2. Warning
-                elif any(x in line_lower for x in warn_keywords):
-                    warn_counter[line_strip] += 1
-                    total_count += 1
+                # 3. Warning 분류
+                elif any(x in clean_msg.lower() for x in warn_keywords):
+                    warn_counter[clean_msg] += 1
                 
-                # Info는 무시 (속도 및 가독성 최적화)
+                # Info는 무시 (속도 및 가독성)
 
             # ------------------------------------------------
             # [결과 출력]
             # ------------------------------------------------
-            report_lines = [f"### 📊 분석 결과 (총 {total_count}건의 이슈 발견)"]
+            report_lines = [f"### 📊 핵심 로그 분석 결과 (총 {len(lines)}줄 중 중복 제거됨)"]
             
             # Critical
             report_lines.append(f"\n#### 🔴 Critical ({sum(crit_counter.values())}회)")
             if crit_counter:
                 for log_msg, count in crit_counter.most_common():
-                     # 반복 횟수 표시
-                    if count > 1: report_lines.append(f"- `{log_msg}` **(x {count}회)**")
-                    else: report_lines.append(f"- `{log_msg}`")
+                    if count > 1:
+                        report_lines.append(f"- `{log_msg}` **(x {count}건)**")
+                    else:
+                        report_lines.append(f"- `{log_msg}`")
             else:
-                report_lines.append("- ✅ 발견되지 않음")
+                report_lines.append("- ✅ 발견되지 않음 (Clean)")
 
             # Warning
             report_lines.append(f"\n#### 🟡 Warning ({sum(warn_counter.values())}회)")
             if warn_counter:
                 for log_msg, count in warn_counter.most_common():
-                    if count > 1: report_lines.append(f"- `{log_msg}` **(x {count}회)**")
-                    else: report_lines.append(f"- `{log_msg}`")
+                    if count > 1:
+                        report_lines.append(f"- `{log_msg}` **(x {count}건)**")
+                    else:
+                        report_lines.append(f"- `{log_msg}`")
             else:
                 report_lines.append("- ✅ 발견되지 않음")
             
@@ -178,9 +187,9 @@ with tab0:
         st.markdown(st.session_state['res_class'])
         
         st.download_button(
-            label="📥 결과 텍스트로 저장",
+            label="📥 요약 결과 저장 (txt)",
             data=st.session_state['res_class'],
-            file_name="Log_Classification_Result.txt",
+            file_name="Log_Summary_Dedup.txt",
             mime="text/plain",
             key="down_0"
         )
@@ -190,7 +199,7 @@ with tab0:
             st.success("복사 완료! 옆 탭으로 이동하세요.")
 
 # ========================================================
-# [TAB 1] 정밀 분석 (여기는 심층 분석이라 AI 사용)
+# [TAB 1] 정밀 분석
 # ========================================================
 with tab1:
     st.header("🕵️‍♀️ 심층 분석 (RCA)")
@@ -228,7 +237,7 @@ with tab1:
         )
 
 # ========================================================
-# [TAB 2] 스펙 조회 (AI)
+# [TAB 2] 스펙 조회
 # ========================================================
 with tab2:
     st.header("스펙 조회")
@@ -257,7 +266,7 @@ with tab2:
         )
 
 # ========================================================
-# [TAB 3] OS 추천 (AI)
+# [TAB 3] OS 추천
 # ========================================================
 with tab3:
     st.header("OS 추천")
