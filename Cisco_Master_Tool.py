@@ -4,7 +4,7 @@ import datetime
 import os
 
 # ========================================================
-# 🎨 페이지 기본 설정 (무조건 가장 첫 줄에!)
+# 🎨 페이지 기본 설정 (무조건 가장 첫 줄!)
 # ========================================================
 st.set_page_config(
     page_title="Cisco AI Master System",
@@ -13,44 +13,79 @@ st.set_page_config(
 )
 
 # ========================================================
-# 🔑 사용자 API 키 설정 (보안 적용)
+# 🔑 사용자 API 키 설정
 # ========================================================
-# Streamlit Cloud의 Secrets 기능을 사용합니다.
 try:
     API_KEY_LOG = st.secrets["API_KEY_LOG"]
     API_KEY_SPEC = st.secrets["API_KEY_SPEC"]
     API_KEY_OS = st.secrets["API_KEY_OS"]
 except Exception as e:
     st.error("🚨 API 키를 찾을 수 없습니다.")
-    st.info("로컬 실행 시: .streamlit/secrets.toml 파일을 생성하세요.")
     st.info("배포 시: Streamlit Cloud 설정의 'Secrets' 메뉴에 키를 입력하세요.")
     st.stop()
 
 # ========================================================
-# 🤖 사이드바 설정
+# ⏳ 사용량 카운터 초기화 (세션 상태 관리)
+# ========================================================
+# 1. 오늘 날짜 확인
+today_str = datetime.date.today().isoformat()
+
+# 2. 세션 상태에 '사용량 데이터'가 없거나, 날짜가 바뀌었으면 리셋
+if 'usage_data' not in st.session_state or st.session_state.usage_data['date'] != today_str:
+    st.session_state.usage_data = {
+        'date': today_str,
+        'Gemini 2.5 Flash Lite': 0,
+        'Gemini 2.5 Flash': 0,
+        'Gemini 3 Flash Preview': 0
+    }
+
+# ========================================================
+# 🤖 사이드바 설정 (카운터 표시)
 # ========================================================
 with st.sidebar:
     st.header("🤖 엔진 설정")
-    selected_model_name = st.selectbox(
+    
+    # 모델 ID 매핑 정보
+    model_map = {
+        "Gemini 2.5 Flash Lite": "models/gemini-2.5-flash-lite",
+        "Gemini 2.5 Flash": "models/gemini-2.5-flash",
+        "Gemini 3 Flash Preview": "models/gemini-3-flash-preview"
+    }
+
+    # 선택지 문구 만들기 (예: "모델명 (오늘 사용: 5회)")
+    selection_options = []
+    for model_name in model_map.keys():
+        count = st.session_state.usage_data.get(model_name, 0)
+        selection_options.append(f"{model_name} (오늘 사용: {count}회)")
+
+    # 셀렉트박스 표시
+    selected_option_str = st.selectbox(
         "사용할 AI 모델을 선택하세요:",
-        ("Gemini 2.5 Flash Lite (추천/가성비)", "Gemini 2.5 Flash (표준)", "Gemini 3 Flash Preview (최신)")
+        selection_options
     )
-    if "Lite" in selected_model_name: MODEL_ID = "models/gemini-2.5-flash-lite"
-    elif "Gemini 3" in selected_model_name: MODEL_ID = "models/gemini-3-flash-preview"
-    else: MODEL_ID = "models/gemini-2.5-flash"
+
+    # 선택된 문구에서 '진짜 모델 이름'만 추출하기
+    # 예: "Gemini 2.5 Flash (오늘 사용: 5회)" -> "Gemini 2.5 Flash"
+    current_model_name = selected_option_str.split(" (오늘 사용:")[0]
+    MODEL_ID = model_map[current_model_name]
 
     st.success(f"현재 엔진: {MODEL_ID}")
+    st.info(f"📅 기준 날짜: {today_str}")
     st.markdown("---")
     st.markdown("Created by Wan Hee Cho")
 
 # ========================================================
-# 🤖 AI 연결 함수
+# 🤖 AI 연결 함수 (카운트 증가 로직 추가)
 # ========================================================
-def get_gemini_response(prompt, current_api_key):
+def get_gemini_response(prompt, current_api_key, model_friendly_name):
     try:
         genai.configure(api_key=current_api_key)
         model = genai.GenerativeModel(MODEL_ID)
         response = model.generate_content(prompt)
+        
+        # [중요] 성공적으로 응답을 받으면 카운트 +1
+        st.session_state.usage_data[model_friendly_name] += 1
+        
         return response.text
     except Exception as e:
         return f"System Error: {str(e)}"
@@ -70,7 +105,7 @@ with tab1:
     if st.button("로그 분석 실행", key="btn_log"):
         if not log_input: st.warning("로그를 입력해주세요!")
         else:
-            with st.spinner(f"AI가 로그를 분석 중입니다... ({selected_model_name})"):
+            with st.spinner(f"AI가 로그를 분석 중입니다... ({current_model_name})"):
                 prompt = f"""
                 당신은 시스코 전문가입니다. 다음 로그를 분석하되, 반드시 아래 형식대로 답변하세요.
                 로그: {log_input}
@@ -79,7 +114,8 @@ with tab1:
                 [PART_2](네트워크 영향)
                 [PART_3](조치 방법)
                 """
-                result = get_gemini_response(prompt, API_KEY_LOG)
+                # 함수 호출 시 current_model_name을 같이 넘겨서 카운트 증가시킴
+                result = get_gemini_response(prompt, API_KEY_LOG, current_model_name)
                 try:
                     p1 = result.split("[PART_1]")[1].split("[PART_2]")[0].strip()
                     p2 = result.split("[PART_2]")[1].split("[PART_3]")[0].strip()
@@ -103,9 +139,9 @@ with tab2:
                 항목: Fixed Ports, Switching Capacity, Forwarding Rate, CPU/Memory, Power.
                 주요 특징 3가지 포함. 한국어 답변.
                 """
-                st.markdown(get_gemini_response(prompt, API_KEY_SPEC))
+                st.markdown(get_gemini_response(prompt, API_KEY_SPEC, current_model_name))
 
-# [TAB 3] OS 추천기 (HTML 테이블 적용)
+# [TAB 3] OS 추천기
 with tab3:
     st.header("OS 추천 및 안정성 진단")
     st.caption("💡 추천 OS와 안정성 등급을 확인하고, **우측 링크를 클릭하여 EOL 날짜를 검증**하세요.")
@@ -119,7 +155,6 @@ with tab3:
         else:
             with st.spinner("안정성(Stability) 데이터 분석 및 HTML 리포트 생성 중..."):
                 
-                # 현재 버전 검색 URL (HTML용)
                 current_ver_query = f"Cisco {os_model} {os_ver if os_ver else ''} Last Date of Support"
                 current_ver_url = f"https://www.google.com/search?q={current_ver_query.replace(' ', '+')}"
 
@@ -164,7 +199,5 @@ with tab3:
                 </table>
                 """
                 
-                response_html = get_gemini_response(prompt, API_KEY_OS)
-                
-                # [중요] HTML을 그대로 렌더링하도록 설정 (unsafe_allow_html=True)
+                response_html = get_gemini_response(prompt, API_KEY_OS, current_model_name)
                 st.markdown(response_html, unsafe_allow_html=True)
