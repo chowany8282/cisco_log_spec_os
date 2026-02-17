@@ -32,7 +32,6 @@ def get_shared_usage_stats():
 
 shared_data = get_shared_usage_stats()
 
-# 입력창 초기화 함수들
 def clear_tab1(): st.session_state["log_analysis_area"] = ""
 def clear_tab2(): st.session_state["input_spec"] = ""
 def clear_tab3(): st.session_state["os_model"] = ""; st.session_state["os_ver"] = ""
@@ -71,11 +70,11 @@ st.title("🛡️ Cisco Technical AI Dashboard")
 tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 통합 분류", "📊 정밀 분석", "🔍 스펙 조회", "💿 OS 추천"])
 
 # --------------------------------------------------------
-# [TAB 0] 로그 분류 (Strict Last 1000 Lines)
+# [TAB 0] 로그 분류 (버그 수정: "group" 단어 오인식 해결)
 # --------------------------------------------------------
 with tab0:
-    st.header("⚡ 최신 1000줄 정밀 분석")
-    st.caption("파일의 **맨 마지막 1000줄**만 칼같이 잘라서 분석합니다. (이전 로그 절대 포함 안 됨)")
+    st.header("⚡ 최신 1000줄 정밀 분석 (Bug Fix)")
+    st.caption("파일의 **맨 마지막 1000줄**만 분석합니다. (Pool-group 등의 단어가 필터링되는 오류 수정됨)")
     
     with st.form("tab0_form", clear_on_submit=False):
         uploaded_file = st.file_uploader("📂 로그 파일 선택", type=['txt', 'log'], key="uploader_tab0")
@@ -90,11 +89,10 @@ with tab0:
             content = raw_input
             
         if content:
-            # 1. 전체 라인 분리
+            # 1. 라인 분리 및 1000줄 자르기
             all_lines = content.splitlines()
             total_len = len(all_lines)
             
-            # 2. [핵심] 무조건 마지막 1000줄만 추출 (슬라이싱)
             if total_len > 1000:
                 target_lines = all_lines[-1000:]
                 msg_info = f"총 {total_len}줄 중 **최신 1000줄**만 분석했습니다."
@@ -104,25 +102,27 @@ with tab0:
 
             issue_counter = Counter()
             
-            # 필터 키워드
-            issue_keywords = ["-0-", "-1-", "-2-", "-3-", "-4-", "traceback", "crash", "threshold", "exceeded", "buffer", "fail", "down", "error", "collision", "mismatch"]
+            # [수정됨] 이슈 키워드
+            issue_keywords = ["-0-", "-1-", "-2-", "-3-", "-4-", "traceback", "crash", "threshold", "exceeded", "buffer", "fail", "down", "error", "collision", "mismatch", "tahusd"]
+            
+            # [핵심 수정] "up" 단어 삭제 -> 구체적인 문장으로 변경
+            # 이제 "Pool-group"이 "up" 때문에 사라지지 않습니다.
             ignore_keywords = [
-                "mgmt0", "absent", "admin down", "vty", "up", "changed state to up", 
+                "mgmt0", "absent", "admin down", "vty", 
+                "changed state to up", "is up", "link-3-updown", # "up" 대신 구체적 명시
                 "recovery", "recovered", "online", "ready", "inserted", "removed",
                 "authentication success", "copy complete", "link-keepalive"
             ]
             
-            # 3. 추출된 1000줄 내에서만 분석 시작
             for line in target_lines:
                 line_lower = line.lower()
                 
-                # 이슈 키워드 포함 & 무시 키워드 미포함 체크
+                # 이슈 키워드는 있고, 무시 키워드는 없는지 확인
                 if any(k in line_lower for k in issue_keywords) and not any(i in line_lower for i in ignore_keywords):
                     # 타임스탬프 제거 후 메시지만 추출
                     msg = line[line.find("%"):] if "%" in line else line.strip()
                     issue_counter[msg] += 1
             
-            # 결과 텍스트 생성
             res_text = "\n".join([f"{m} (x {c}건)" if c > 1 else m for m, c in issue_counter.most_common()])
             st.session_state['res_class'] = res_text
             
