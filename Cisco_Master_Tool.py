@@ -140,7 +140,7 @@ def get_gemini_response(prompt, current_api_key, func_prefix):
 # ========================================================
 st.title("🛡️ Cisco Technical AI Dashboard")
 
-tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 분류 (New)", "📊 로그 정밀 분석", "🔍 하드웨어 스펙", "💿 OS 추천"])
+tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 분류", "📊 로그 정밀 분석", "🔍 하드웨어 스펙", "💿 OS 추천"])
 
 # ========================================================
 # [TAB 0] 로그 분류기 (심각도 기준 고도화 적용)
@@ -357,6 +357,7 @@ with tab3:
                 
                 response_html = get_gemini_response(prompt, API_KEY_OS, 'os')
                 st.markdown(response_html, unsafe_allow_html=True)
+
 
 
 
