@@ -116,7 +116,7 @@ with st.sidebar:
 
     draw_usage("📊 로그 분석 (Log Key)", "log")
     draw_usage("🔍 스펙 조회 (Spec Key)", "spec")
-    draw_usage("💿 OS 추천 & 선별 (OS Key)", "os")  # 제목 변경됨
+    draw_usage("💿 OS 추천 & 선별 (OS Key)", "os")
 
     st.markdown("---")
     st.markdown("Created by Wan Hee Cho")
@@ -140,21 +140,21 @@ def get_gemini_response(prompt, current_api_key, func_prefix):
 # ========================================================
 st.title("🛡️ Cisco Technical AI Dashboard")
 
-tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 선별 (OS Key)", "📊 로그 정밀 분석", "🔍 하드웨어 스펙", "💿 OS 추천"])
+tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 선별 (AI Filter)", "📊 로그 정밀 분석", "🔍 하드웨어 스펙", "💿 OS 추천"])
 
 # ========================================================
-# [TAB 0] 로그 선별기 (API 키 변경: LOG -> OS)
+# [TAB 0] 로그 선별기 (AI 스마트 필터링 적용)
 # ========================================================
 with tab0:
-    st.header("⚡ 장애 로그 자동 추출")
-    st.caption("OS API 키를 사용하여 **Critical/Warning** 로그를 선별하고 압축합니다.")
+    st.header("⚡ 스마트 로그 선별 (Smart Action)")
+    st.caption("단순 반복 로그는 버리고, **엔지니어가 '반드시 확인해야 할 이슈'**만 선별합니다.")
     
     uploaded_file = st.file_uploader("📂 로그 파일 업로드 (txt, log)", type=["txt", "log"])
     raw_log_input = st.text_area("📝 또는 여기에 로그를 직접 붙여넣으세요:", height=200, key="raw_log_area")
     
     col_btn1, col_btn2 = st.columns([1, 6])
     with col_btn1:
-        run_btn = st.button("로그 선별 실행", key="btn_classify")
+        run_btn = st.button("AI 선별 실행", key="btn_classify")
     with col_btn2:
         st.button("🗑️ 입력창 지우기", on_click=clear_log_input, key="clr_class")
 
@@ -172,38 +172,52 @@ with tab0:
         if not final_log_content:
             st.warning("로그를 입력해주세요!")
         else:
-            with st.spinner("🚨 중복 로그 압축 및 장애 로그 선별 중..."):
+            with st.spinner("🤖 AI가 '가짜 경고'를 거르고 '진짜 위험'을 찾는 중..."):
                 prompt = f"""
-                당신은 시스코 장애 분석 전문가입니다. 
-                제공된 텍스트에서 **'위험(Critical)' 및 '주의(Warning)'** 수준의 로그만 추출하여 정리하세요.
+                당신은 Cisco TAC 최고 레벨 엔지니어입니다.
+                제공된 로그 중에서 **엔지니어가 반드시 확인하고 조치해야 하는 '실질적인 장애 로그'**만 선별하세요.
 
-                [엄격한 처리 규칙]
-                1. **중복 로그 압축(Deduplication):** 동일하거나 매우 유사한 로그가 반복되면 **절대 모두 나열하지 마세요.** 대신 **대표 로그 하나만 출력**하고, 제목 옆에 **(총 N회 발생)** 형식으로 횟수를 적으세요.
-                2. **노이즈 제거:** Info, Notice, Debug 레벨 및 날짜/시간이 없는 라인은 무조건 버리세요.
-                3. **키워드 필터:** Critical, Warning, Error, Fail, Down, Exceeded, Mismatch 등이 포함된 로그 위주로 남기세요.
+                [AI 스마트 필터링 규칙]
+                1. **무시할 로그 (과감히 제외):** - 단순한 Link Up/Down (단발성)
+                   - Config 저장 메시지 (Configured from console)
+                   - 정상적인 상태 변경 (Changed state to up)
+                   - 날짜/시간(Timestamp)이 없는 로그
+                2. **추출할 로그 (필수 체크):**
+                   - 하드웨어 고장 (Fan, Power, Module, SFP Fail)
+                   - 환경 경보 (Temperature, Voltage)
+                   - 주요 프로토콜 다운 (OSPF, BGP, EIGRP Neighbor Down)
+                   - 시스템 리소스 (CPU, Memory, Buffer Exceeded)
+                   - 반복적인 링크 플래핑 (Flapping) 또는 에러 (CRC, Input Error)
+                3. **중복 압축:** 같은 로그는 하나로 합치고 (총 N회)로 표기하세요.
 
                 [입력 데이터]
                 {final_log_content}
 
-                [출력 예시]
-                **1. 모듈 1번 장애 발생 (총 52회 발생)**
+                [출력 형식]
+                ### 🚨 조치 필수 (Immediate Action)
+                - 하드웨어 교체나 긴급 설정 변경이 필요한 치명적 오류
+                
+                **1. (간략 설명) 모듈 1번 하드웨어 고장 (총 5회)**
                 ```
                 2024 Jan 31 21:03:03 %MODULE-2-FAILED: Module 1 failed
                 ```
+
+                ### ⚠️ 정밀 점검 필요 (Investigation Needed)
+                - 당장은 서비스가 되지만 방치하면 장애로 이어질 수 있는 전조 증상
                 
-                **2. 인터페이스 Ethernet1/1 다운 (총 14회 발생)**
+                **1. (간략 설명) 1번 슬롯 버퍼 임계값 초과 (총 120회)**
                 ```
-                2024 Jan 31 21:05:00 %ETHPORT-5-IF_DOWN_LINK_FAILURE: Interface Ethernet1/1 is down
+                2024 Jan 31 22:00:00 %TAHUSD-4-BUFFER_THRESHOLD: Buffer threshold exceeded
                 ```
                 """
-                # [변경점] API_KEY_OS 사용, 카운터도 'os' 사용
+                # API_KEY_OS 사용
                 classified_result = get_gemini_response(prompt, API_KEY_OS, 'os')
                 st.session_state['classified_result'] = classified_result 
                 st.session_state['log_transfer_buffer'] = classified_result 
                 
     if 'classified_result' in st.session_state:
         st.markdown("---")
-        st.subheader("🎯 선별된 장애 로그 (Critical/Warning)")
+        st.subheader("🎯 AI 선별 결과 (Actionable Items)")
         st.markdown(st.session_state['classified_result'])
         
         st.success("👆 로그 우측 상단의 'Copy' 아이콘을 눌러 개별 복사도 가능합니다.")
@@ -213,7 +227,7 @@ with tab0:
              st.success("✅ 로그가 복사되었습니다! 상단의 '📊 로그 정밀 분석' 탭을 눌러 이동하세요.")
 
 # ========================================================
-# [TAB 1] 로그 분석기 (여기는 그대로 Log Key 사용)
+# [TAB 1] 로그 분석기
 # ========================================================
 with tab1:
     st.header("로그 분석 및 장애 진단")
@@ -242,7 +256,6 @@ with tab1:
                 [PART_2](네트워크 영향)
                 [PART_3](구체적인 조치 방법 및 명령어 제안)
                 """
-                # 여기는 계속 API_KEY_LOG 사용
                 result = get_gemini_response(prompt, API_KEY_LOG, 'log')
                 try:
                     p1 = result.split("[PART_1]")[1].split("[PART_2]")[0].strip()
