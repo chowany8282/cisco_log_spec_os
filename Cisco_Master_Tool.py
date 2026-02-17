@@ -4,7 +4,7 @@ import datetime
 import os
 
 # ========================================================
-# 🎨 페이지 기본 설정 (무조건 가장 첫 줄!)
+# 🎨 페이지 기본 설정
 # ========================================================
 st.set_page_config(
     page_title="Cisco AI Master System",
@@ -26,8 +26,6 @@ except Exception as e:
 # ========================================================
 # 💾 사용량 카운터 설정
 # ========================================================
-
-# 1. 카운트할 항목 정의
 usage_keys = [
     "log_lite", "log_flash", "log_pro",
     "spec_lite", "spec_flash", "spec_pro",
@@ -35,39 +33,38 @@ usage_keys = [
     "class_lite", "class_flash", "class_pro"
 ]
 
-# 2. 서버 메모리에 데이터 저장 (새로고침해도 유지됨)
 @st.cache_resource
 def get_shared_usage_stats():
-    # 초기값 0으로 딕셔너리 생성
     stats_init = {key: 0 for key in usage_keys}
     return {
         'date': str(datetime.date.today()),
         'stats': stats_init
     }
 
-# 3. 데이터 가져오기 및 초기화 로직
 shared_data = get_shared_usage_stats()
 today_str = str(datetime.date.today())
 
-# 날짜가 바뀌었으면 카운터 리셋
 if shared_data['date'] != today_str:
     shared_data['date'] = today_str
     for key in usage_keys:
         shared_data['stats'][key] = 0
 
 # ========================================================
+# 🧹 [NEW] 입력창 초기화 함수
+# ========================================================
+def clear_log_input():
+    st.session_state["raw_log_area"] = ""
+
+# ========================================================
 # 🤖 사이드바 설정
 # ========================================================
 with st.sidebar:
     st.header("🤖 엔진 설정")
-    
-    # 모델 선택
     selected_model_name = st.selectbox(
         "사용할 AI 모델을 선택하세요:",
         ("Gemini 2.5 Flash Lite (가성비)", "Gemini 2.5 Flash (표준)", "Gemini 3 Flash Preview (최신)")
     )
     
-    # 모델 매핑
     if "Lite" in selected_model_name: 
         MODEL_ID = "models/gemini-2.5-flash-lite"
         current_model_type = "lite"
@@ -81,7 +78,6 @@ with st.sidebar:
     st.success(f"선택됨: {selected_model_name}")
     st.markdown("---")
 
-    # 사용량 현황판
     st.markdown("### 📊 일일 누적 사용량")
     st.caption(f"📅 {today_str} 기준 (서버 유지)")
 
@@ -125,11 +121,8 @@ def get_gemini_response(prompt, current_api_key, func_prefix):
         genai.configure(api_key=current_api_key)
         model = genai.GenerativeModel(MODEL_ID)
         response = model.generate_content(prompt)
-        
-        # 카운트 증가
         count_key = f"{func_prefix}_{current_model_type}"
         shared_data['stats'][count_key] += 1
-        
         return response.text
     except Exception as e:
         return f"System Error: {str(e)}"
@@ -141,75 +134,91 @@ st.title("🛡️ Cisco Technical AI Dashboard")
 
 tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 분류 (New)", "📊 로그 정밀 분석", "🔍 하드웨어 스펙", "💿 OS 추천"])
 
-# [TAB 0] 로그 분류기 (파일 업로드 추가됨)
+# ========================================================
+# [TAB 0] 로그 분류기 (수정됨: 초기화 버튼 + 제안 섹션 깔끔하게)
+# ========================================================
 with tab0:
     st.header("⚡ 대량 로그 자동 분류")
     st.caption("로그 파일을 업로드하거나, 아래 텍스트 창에 직접 붙여넣으세요.")
     
-    # 1. 파일 업로드 위젯
     uploaded_file = st.file_uploader("📂 로그 파일 업로드 (txt, log)", type=["txt", "log"])
-
-    # 2. 텍스트 입력 위젯
+    
+    # 텍스트 입력창 (세션 상태와 연결하여 지우기 가능하도록 설정)
     raw_log_input = st.text_area("📝 또는 여기에 로그를 직접 붙여넣으세요:", height=200, key="raw_log_area")
     
-    if st.button("로그 분류 실행", key="btn_classify"):
-        # 분석할 로그 결정 (파일이 있으면 파일 내용 우선 사용)
+    # 버튼 배치 (분류 실행 옆에 초기화 버튼)
+    col_btn1, col_btn2 = st.columns([1, 5])
+    with col_btn1:
+        run_btn = st.button("로그 분류 실행", key="btn_classify")
+    with col_btn2:
+        # [NEW] 초기화 버튼: 누르면 clear_log_input 함수 실행
+        st.button("🗑️ 입력창 지우기", on_click=clear_log_input)
+
+    if run_btn:
         final_log_content = ""
-        
         if uploaded_file is not None:
-            # 파일 읽기
             try:
                 final_log_content = uploaded_file.getvalue().decode("utf-8")
                 st.info(f"📂 업로드된 파일 '{uploaded_file.name}'을 분석합니다.")
             except Exception as e:
-                st.error(f"파일을 읽는 중 오류가 발생했습니다: {e}")
+                st.error(f"파일 오류: {e}")
         elif raw_log_input:
             final_log_content = raw_log_input
         
-        # 로그 내용이 없으면 경고
         if not final_log_content:
-            st.warning("로그 파일을 업로드하거나 텍스트를 입력해주세요!")
+            st.warning("로그를 입력해주세요!")
         else:
-            with st.spinner("로그 패턴 분석 및 심각도 분류 중..."):
+            with st.spinner("로그 심각도 분류 및 핵심 로그 추출 중..."):
+                # [수정된 프롬프트] 분석 제안 섹션에 설명을 빼고 코드 블록만 출력하도록 지시
                 prompt = f"""
                 당신은 시스코 로그 분석 전문가입니다. 
-                아래 로그들을 분석하여 심각도(Critical, Warning, Info) 별로 분류하고 요약해주세요.
+                아래 로그를 [Critical, Warning, Info]로 분류하세요.
                 
                 [입력 로그]
                 {final_log_content}
 
                 [출력 형식]
-                각 로그 그룹에 대해 다음과 같이 출력하세요. (마크다운 형식)
+                ### 🔴 Critical
+                - (요약)
                 
-                ### 🔴 Critical (심각한 장애)
-                - (로그 내용 요약)
-                - (로그 원본 일부)
+                ### 🟡 Warning
+                - (요약)
                 
-                ### 🟡 Warning (경고)
-                - (로그 내용 요약)
-                
-                ### 🔵 Info (일반 정보)
-                - (로그 내용 요약)
+                ### 🔵 Info
+                - (요약)
 
-                마지막에 **[분석 제안]** 섹션을 만들어서 정밀 분석이 필요한 핵심 로그만 따로 추출해 주세요.
+                ---
+                ### 🎯 분석 제안 (Analysis Suggestion)
+                **정밀 분석이 반드시 필요한 핵심 로그**만 골라서 아래와 같이 출력하세요.
+                **중요: 설명글이나 불렛포인트는 절대 쓰지 마세요.** 오직 로그 원본만 **코드 블록(```)** 안에 넣어서 출력하세요.
+                (사용자가 버튼을 눌러 쉽게 복사할 수 있어야 합니다.)
+
+                예시:
+                ```
+                %ETHPORT-5-IF_DOWN_LINK_FAILURE: Interface Ethernet1/1 is down
+                ```
+                ```
+                %TAHUSD-SLOT1-4-BUFFER_THRESHOLD_EXCEEDED: Module 1 buffer threshold exceeded
+                ```
                 """
                 classified_result = get_gemini_response(prompt, API_KEY_LOG, 'class')
                 st.session_state['classified_result'] = classified_result 
-                # 다음 탭으로 넘길 데이터도 미리 준비
                 st.session_state['log_transfer_buffer'] = final_log_content
                 
     if 'classified_result' in st.session_state:
         st.markdown("---")
         st.subheader("📋 분류 결과")
         st.markdown(st.session_state['classified_result'])
-        st.info("💡 위 결과 중 정밀 분석하고 싶은 로그를 복사하여 '📊 로그 정밀 분석' 탭에서 분석하세요.")
         
-        if st.button("📝 분석했던 원본 로그를 '로그 정밀 분석' 탭으로 복사하기"):
-             # 아까 분석했던 그 로그 내용을 전달
+        st.success("👆 [분석 제안]의 로그 우측 상단 'Copy' 아이콘을 누르면 복사됩니다!")
+        
+        if st.button("📝 전체 로그를 '로그 정밀 분석' 탭으로 복사하기"):
              st.session_state['log_transfer'] = st.session_state.get('log_transfer_buffer', "")
-             st.success("복사되었습니다! 상단의 '📊 로그 정밀 분석' 탭을 눌러 이동하세요.")
+             st.success("복사되었습니다! '📊 로그 정밀 분석' 탭으로 이동하세요.")
 
+# ========================================================
 # [TAB 1] 로그 분석기
+# ========================================================
 with tab1:
     st.header("로그 분석 및 장애 진단")
     default_log_value = st.session_state.get('log_transfer', "")
@@ -237,7 +246,9 @@ with tab1:
                     st.subheader("🟢 권장 조치"); st.success(p3)
                 except: st.markdown(result)
 
+# ========================================================
 # [TAB 2] 스펙 조회기
+# ========================================================
 with tab2:
     st.header("장비 하드웨어 스펙 조회")
     model_input = st.text_input("장비 모델명 (예: C9300-48P)", key="input_spec")
@@ -253,7 +264,9 @@ with tab2:
                 """
                 st.markdown(get_gemini_response(prompt, API_KEY_SPEC, 'spec'))
 
+# ========================================================
 # [TAB 3] OS 추천기
+# ========================================================
 with tab3:
     st.header("OS 추천 및 안정성 진단")
     st.caption("💡 장비 계열을 먼저 선택하면 더 정확한 추천을 받을 수 있습니다.")
@@ -280,7 +293,7 @@ with tab3:
                     search_keyword = "Catalyst"
 
                 current_ver_query = f"Cisco {search_keyword} {os_model} {os_ver if os_ver else ''} Last Date of Support"
-                current_ver_url = f"https://www.google.com/search?q={current_ver_query.replace(' ', '+')}"
+                current_ver_url = f"[https://www.google.com/search?q=](https://www.google.com/search?q=){current_ver_query.replace(' ', '+')}"
 
                 prompt = f"""
                 {family_prompt}
