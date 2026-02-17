@@ -140,10 +140,10 @@ def get_gemini_response(prompt, current_api_key, func_prefix):
 # ========================================================
 st.title("🛡️ Cisco Technical AI Dashboard")
 
-tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 선별 (Action Items)", "📊 로그 정밀 분석", "🔍 하드웨어 스펙", "💿 OS 추천"])
+tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 선별 (AI Filter)", "📊 로그 정밀 분석", "🔍 하드웨어 스펙", "💿 OS 추천"])
 
 # ========================================================
-# [TAB 0] 로그 선별기 (필터링 강화)
+# [TAB 0] 로그 선별기 (인터페이스 다운 제외)
 # ========================================================
 with tab0:
     st.header("⚡ 스마트 로그 선별 (Action Required)")
@@ -172,19 +172,21 @@ with tab0:
         if not final_log_content:
             st.warning("로그를 입력해주세요!")
         else:
-            with st.spinner("🤖 AI가 '조치 필수' 항목을 선별하고 중복을 압축 중..."):
+            with st.spinner("🤖 AI가 '단순 링크 다운'은 무시하고 '진짜 위험'만 찾는 중..."):
+                # [수정된 프롬프트] Link Down/Up을 강력하게 제외
                 prompt = f"""
                 당신은 Cisco TAC 최고 레벨 엔지니어입니다.
                 제공된 로그 중에서 **엔지니어가 반드시 확인하고 조치해야 하는 '실질적인 장애/위협 로그'**만 선별하세요.
 
                 [AI 판단 기준 (Strict Filtering)]
-                1. **제외할 로그 (Noise):**
-                   - 단순한 Link Flapping (1~2회성)
-                   - Config 저장 메시지, 정상 상태 변경 (Up/Down 반복 없는 경우)
-                   - 날짜/시간(Timestamp)이 없는 텍스트, show 명령어 출력 결과
+                1. **무조건 제외할 로그 (Ignore List):**
+                   - **모든 종류의 단순 Link Down/Up (Interface Down, Link Failure 등)**
+                   - 예: `%ETHPORT-5-IF_DOWN_LINK_FAILURE`, `%LINK-3-UPDOWN`, `Changed state to down`
+                   - Config 저장 메시지, 날짜/시간(Timestamp)이 없는 텍스트
                    - 단순 Info/Notice 레벨
-                2. **포함할 로그 (Action Required):**
-                   - **Hardware Failure:** Fan, Power, Module, SFP, ASIC Error
+                2. **반드시 포함할 로그 (Critical Actions):**
+                   - **Hardware Failure:** Fan, Power, Module, SFP(Transceiver), ASIC Error
+                   - **Err-Disable:** 포트가 에러로 인해 강제로 닫힌 경우 (`err-disable`)
                    - **Service Impact:** Protocol Down (OSPF/BGP/EIGRP), Unexpected Reboot (Crash)
                    - **Risk Warning:** High Temperature, Voltage Alarm, Memory/CPU Exhaustion
                    - **Network Quality:** 지속적인 CRC Error, Input Error, Output Drop
