@@ -140,14 +140,14 @@ def get_gemini_response(prompt, current_api_key, func_prefix):
 # ========================================================
 st.title("🛡️ Cisco Technical AI Dashboard")
 
-tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 선별 (AI Filter)", "📊 로그 정밀 분석", "🔍 하드웨어 스펙", "💿 OS 추천"])
+tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 선별 (Action Items)", "📊 로그 정밀 분석", "🔍 하드웨어 스펙", "💿 OS 추천"])
 
 # ========================================================
-# [TAB 0] 로그 선별기
+# [TAB 0] 로그 선별기 (필터링 강화)
 # ========================================================
 with tab0:
-    st.header("⚡ 스마트 로그 선별 (Smart Action)")
-    st.caption("단순 반복 로그는 버리고, **엔지니어가 '반드시 확인해야 할 이슈'**만 선별합니다.")
+    st.header("⚡ 스마트 로그 선별 (Action Required)")
+    st.caption("AI가 판단하여 **엔지니어가 반드시 조치해야 할 핵심 로그**만 보여줍니다.")
     
     uploaded_file = st.file_uploader("📂 로그 파일 업로드 (txt, log)", type=["txt", "log"])
     raw_log_input = st.text_area("📝 또는 여기에 로그를 직접 붙여넣으세요:", height=200, key="raw_log_area")
@@ -172,36 +172,47 @@ with tab0:
         if not final_log_content:
             st.warning("로그를 입력해주세요!")
         else:
-            with st.spinner("🤖 AI가 '가짜 경고'를 거르고 '진짜 위험'을 찾는 중..."):
+            with st.spinner("🤖 AI가 '조치 필수' 항목을 선별하고 중복을 압축 중..."):
                 prompt = f"""
                 당신은 Cisco TAC 최고 레벨 엔지니어입니다.
-                제공된 로그 중에서 **엔지니어가 반드시 확인하고 조치해야 하는 '실질적인 장애 로그'**만 선별하세요.
+                제공된 로그 중에서 **엔지니어가 반드시 확인하고 조치해야 하는 '실질적인 장애/위협 로그'**만 선별하세요.
 
-                [AI 스마트 필터링 규칙]
-                1. **무시할 로그 (과감히 제외):**
-                   - 단순한 Link Up/Down (단발성)
-                   - Config 저장 메시지, 정상 상태 변경
-                   - 날짜/시간(Timestamp)이 없는 로그
-                2. **추출할 로그 (필수 체크):**
-                   - 하드웨어 고장, 환경 경보(온도/전압), 주요 프로토콜 다운
-                   - 시스템 리소스 부족, 반복적인 에러/플래핑
-                3. **중복 압축:** 같은 로그는 하나로 합치고 (총 N회)로 표기하세요.
+                [AI 판단 기준 (Strict Filtering)]
+                1. **제외할 로그 (Noise):**
+                   - 단순한 Link Flapping (1~2회성)
+                   - Config 저장 메시지, 정상 상태 변경 (Up/Down 반복 없는 경우)
+                   - 날짜/시간(Timestamp)이 없는 텍스트, show 명령어 출력 결과
+                   - 단순 Info/Notice 레벨
+                2. **포함할 로그 (Action Required):**
+                   - **Hardware Failure:** Fan, Power, Module, SFP, ASIC Error
+                   - **Service Impact:** Protocol Down (OSPF/BGP/EIGRP), Unexpected Reboot (Crash)
+                   - **Risk Warning:** High Temperature, Voltage Alarm, Memory/CPU Exhaustion
+                   - **Network Quality:** 지속적인 CRC Error, Input Error, Output Drop
+                3. **중복 압축 (Dedup):** 같은 로그는 하나로 합치고 제목 옆에 (총 N회 발생) 표기.
 
-                [중요: 출력 순서]
-                - 사용자가 복사하기 편하도록 **로그 코드 블록(Code Block)을 무조건 맨 위**에 배치하세요.
-                - 설명은 코드 블록 **아래**에 적으세요.
+                [출력 레이아웃]
+                - **로그 코드 블록(Code Block)을 무조건 맨 위**에 배치하세요.
+                - 설명은 코드 블록 **아래**에 '└─' 기호를 써서 간략히 적으세요.
 
                 [입력 데이터]
                 {final_log_content}
 
                 [출력 형식 예시]
-                ### 🚨 조치 필수 (Immediate Action)
+                ### 🚨 조치 필수 (Critical Actions)
                 
-                **1. 모듈 1번 하드웨어 고장 (총 5회)**
+                **1. 모듈 1번 하드웨어 고장 (총 5회 발생)**
                 ```
                 2024 Jan 31 21:03:03 %MODULE-2-FAILED: Module 1 failed
                 ```
-                └─ (설명) 하드웨어 교체가 필요합니다.
+                └─ (설명) 하드웨어 교체가 필요한 상태입니다.
+
+                ### ⚠️ 정밀 점검 필요 (Investigation Needed)
+                
+                **1. 1번 슬롯 버퍼 임계값 초과 (총 342회 발생)**
+                ```
+                2024 Jan 31 22:00:00 %TAHUSD-4-BUFFER_THRESHOLD: Buffer threshold exceeded
+                ```
+                └─ (설명) 트래픽 폭주로 인한 패킷 드랍이 의심됩니다. QoS 설정 점검이 필요합니다.
                 """
                 # API_KEY_OS 사용
                 classified_result = get_gemini_response(prompt, API_KEY_OS, 'os')
@@ -209,6 +220,14 @@ with tab0:
                 
     if 'classified_result' in st.session_state:
         st.markdown("---")
+        
+        # 전체 복사 버튼
+        col_copy_btn, col_copy_msg = st.columns([2, 5])
+        with col_copy_btn:
+            if st.button("📝 선별된 로그 전체 복사 (정밀 분석용)"):
+                 st.session_state['log_transfer'] = st.session_state['classified_result']
+                 st.success("✅ 복사 완료! 상단의 '📊 로그 정밀 분석' 탭으로 이동하세요.")
+        
         st.subheader("🎯 AI 선별 결과 (Actionable Items)")
         st.markdown(st.session_state['classified_result'])
 
@@ -217,7 +236,8 @@ with tab0:
 # ========================================================
 with tab1:
     st.header("로그 분석 및 장애 진단")
-    log_input = st.text_area("분석할 로그를 입력하세요:", height=150, key="log_analysis_area")
+    default_log_value = st.session_state.get('log_transfer', "")
+    log_input = st.text_area("분석할 로그를 입력하세요:", value=default_log_value, height=150, key="log_analysis_area")
     
     c1, c2 = st.columns([1, 6])
     with c1:
@@ -275,7 +295,7 @@ with tab2:
                 st.markdown(get_gemini_response(prompt, API_KEY_SPEC, 'spec'))
 
 # ========================================================
-# [TAB 3] OS 추천기 (🚨 HTML 코드 깨짐 수정)
+# [TAB 3] OS 추천기
 # ========================================================
 with tab3:
     st.header("OS 추천 및 안정성 진단")
@@ -309,7 +329,7 @@ with tab3:
                     search_keyword = "Catalyst"
 
                 current_ver_query = f"Cisco {search_keyword} {os_model} {os_ver if os_ver else ''} Last Date of Support"
-                current_ver_url = f"[https://www.google.com/search?q=](https://www.google.com/search?q=){current_ver_query.replace(' ', '+')}"
+                current_ver_url = f"https://www.google.com/search?q={current_ver_query.replace(' ', '+')}"
 
                 prompt = f"""
                 {family_prompt}
@@ -335,8 +355,6 @@ with tab3:
                 """
                 
                 response_html = get_gemini_response(prompt, API_KEY_OS, 'os')
-                
-                # [🚨 핵심 수정] AI가 코드를 ```html ... ``` 로 감싸서 주면 벗겨내기
                 response_html = response_html.replace("```html", "").replace("```", "")
                 
                 st.markdown(response_html, unsafe_allow_html=True)
