@@ -2,10 +2,9 @@ import streamlit as st
 import google.generativeai as genai
 import datetime
 import os
-import io
 
 # ========================================================
-# 🎨 페이지 기본 설정
+# 🎨 페이지 기본 설정 (무조건 맨 위!)
 # ========================================================
 st.set_page_config(
     page_title="Cisco AI Master System",
@@ -21,12 +20,14 @@ try:
     API_KEY_SPEC = st.secrets["API_KEY_SPEC"]
     API_KEY_OS = st.secrets["API_KEY_OS"]
 except Exception as e:
-    st.error("🚨 API 키를 찾을 수 없습니다.")
+    st.error("🚨 API 키를 찾을 수 없습니다. secrets.toml 파일을 확인하세요.")
     st.stop()
 
 # ========================================================
-# 💾 사용량 카운터 설정
+# 💾 사용량 카운터 설정 (순서 중요: 변수 정의 -> 함수 정의)
 # ========================================================
+
+# [수정] usage_keys 리스트를 함수보다 먼저 정의해야 NameError가 안 납니다.
 usage_keys = [
     "log_lite", "log_flash", "log_pro",
     "spec_lite", "spec_flash", "spec_pro",
@@ -35,6 +36,7 @@ usage_keys = [
 
 @st.cache_resource
 def get_shared_usage_stats():
+    # 초기값 0으로 딕셔너리 생성
     stats_init = {key: 0 for key in usage_keys}
     return {
         'date': str(datetime.date.today()),
@@ -44,6 +46,7 @@ def get_shared_usage_stats():
 shared_data = get_shared_usage_stats()
 today_str = str(datetime.date.today())
 
+# 날짜가 바뀌었으면 카운터 리셋
 if shared_data['date'] != today_str:
     shared_data['date'] = today_str
     for key in usage_keys:
@@ -144,27 +147,27 @@ st.title("🛡️ Cisco Technical AI Dashboard")
 tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 분류 (New)", "📊 로그 정밀 분석", "🔍 하드웨어 스펙", "💿 OS 추천"])
 
 # ========================================================
-# [TAB 0] 로그 분류기 (모바일 업로드 강화 버전)
+# [TAB 0] 로그 분류기 (모바일 폼 적용 + 인코딩 해결)
 # ========================================================
 with tab0:
     st.header("⚡ 대량 로그 자동 분류")
     st.caption("로그 파일을 업로드하거나, 아래 텍스트 창에 직접 붙여넣으세요.")
 
-    # [수정] Form을 사용하여 모바일 업로드 안정성 확보
+    # [중요] st.form을 사용하여 모바일 업로드 끊김 방지
     with st.form("upload_form", clear_on_submit=False):
-        uploaded_file = st.file_uploader("📂 로그 파일 선택 (모바일 호환)", type=["txt", "log", "out", "cfg", "csv"])
+        uploaded_file = st.file_uploader("📂 로그 파일 선택 (txt, log, out, cfg)", type=["txt", "log", "out", "cfg", "csv"])
         raw_log_input = st.text_area("📝 또는 로그 붙여넣기:", height=150, key="raw_log_area")
         
-        # 버튼을 폼 안으로 넣음
+        # 폼 제출 버튼
         submitted = st.form_submit_button("🚀 로그 분류 실행")
 
-    # 폼 밖에서 초기화 버튼
+    # 초기화 버튼은 폼 밖에 배치
     st.button("🗑️ 입력창 지우기", on_click=clear_log_input, key="clr_class")
 
     if submitted:
         final_log_content = ""
         
-        # 1. 파일 처리 (인코딩 자동 감지)
+        # 1. 파일 읽기 (인코딩 자동 감지 로직)
         if uploaded_file is not None:
             raw_bytes = uploaded_file.getvalue()
             try:
@@ -176,7 +179,7 @@ with tab0:
                     final_log_content = raw_bytes.decode("utf-8", errors="ignore")
             st.success(f"📂 파일 '{uploaded_file.name}' 로드 성공!")
             
-        # 2. 텍스트 입력 처리
+        # 2. 텍스트 입력 확인
         elif raw_log_input:
             final_log_content = raw_log_input
         
@@ -244,40 +247,56 @@ with tab0:
              st.success("복사되었습니다! '📊 로그 정밀 분석' 탭으로 이동하세요.")
 
 # ========================================================
-# [TAB 1] 로그 분석기
+# [TAB 1] 로그 분석기 (RCA 분석 강화)
 # ========================================================
 with tab1:
-    st.header("로그 분석 및 장애 진단")
+    st.header("🕵️‍♀️ 로그 심층 분석 (Root Cause Analysis)")
+    st.caption("로그의 단순 의미가 아니라, **장애의 근본 원인**을 추적합니다.")
+    
     default_log_value = st.session_state.get('log_transfer', "")
-    log_input = st.text_area("분석할 로그를 입력하세요:", value=default_log_value, height=150, key="log_analysis_area")
+    log_input = st.text_area("분석할 로그를 입력하세요:", value=default_log_value, height=200, key="log_analysis_area")
     
     c1, c2 = st.columns([1, 6])
     with c1:
-        btn_run_log = st.button("로그 분석 실행", key="btn_log")
+        btn_run_log = st.button("🚀 정밀 분석 실행", key="btn_log")
     with c2:
         st.button("🗑️ 입력창 지우기", on_click=clear_analysis_input, key="clr_anal")
 
     if btn_run_log:
         if not log_input: st.warning("로그를 입력해주세요!")
         else:
-            with st.spinner(f"AI가 로그를 분석 중입니다..."):
+            with st.spinner(f"🔍 AI가 로그의 상관관계를 분석하고 근본 원인을 찾고 있습니다..."):
                 prompt = f"""
-                당신은 시스코 전문가입니다. 다음 로그를 분석하되, 반드시 아래 형식대로 답변하세요.
-                로그: {log_input}
-                답변 형식:
-                [PART_1](발생 원인)
-                [PART_2](네트워크 영향)
-                [PART_3](조치 방법)
+                당신은 Cisco 본사의 **Tier 3 TAC(Technical Assistance Center) 백본 엔지니어**입니다.
+                사용자가 제출한 로그를 바탕으로 **근본 원인(Root Cause)**을 찾아내야 합니다.
+
+                [분석 지침]
+                1. 단순한 로그 번역을 하지 마세요. 로그가 **왜** 발생했는지 추론하세요.
+                2. 하드웨어 결함(H/W), 소프트웨어 버그(S/W), 설정 오류(Config), 물리적 이슈(Cable/SFP) 중 어디에 해당하는지 판단하세요.
+                3. 해결책은 막연한 가이드가 아니라, **당장 장비에 입력해야 할 구체적인 명령어(CLI)**를 포함해야 합니다.
+
+                [입력 로그]
+                {log_input}
+
+                [출력 형식] (마크다운 사용)
+
+                ### 1. 🎯 근본 원인 (Root Cause)
+                * **진단:** (예: 모듈 1번의 ASIC 칩셋 통신 불량 / OSPF Neighbor MTU 불일치 등 구체적으로)
+                * **설명:** 이 로그가 발생하게 된 기술적 배경을 설명하세요.
+
+                ### 2. 📉 영향도 분석 (Impact)
+                * **현재 상태:** (예: 해당 인터페이스 통신 단절, 장비 전체 리부팅 위험 등)
+                * **잠재 위험:** 조치하지 않을 경우 발생할 수 있는 추가 장애.
+
+                ### 3. 🛠️ 해결 및 검증 방법 (Action Plan)
+                * **Step 1 (긴급 조치):** 당장 수행해야 할 작업.
+                * **Step 2 (검증 명령어):** 원인을 확진하기 위해 입력해볼 CLI 명령어.
+                  (예: `show platform`, `show interface transceiver detail` 등)
+                * **Step 3 (TAC 케이스):** 하드웨어 교체(RMA)가 필요한지 여부 판단.
                 """
+                
                 result = get_gemini_response(prompt, API_KEY_LOG, 'log')
-                try:
-                    p1 = result.split("[PART_1]")[1].split("[PART_2]")[0].strip()
-                    p2 = result.split("[PART_2]")[1].split("[PART_3]")[0].strip()
-                    p3 = result.split("[PART_3]")[1].strip()
-                    st.subheader("🔴 발생 원인"); st.error(p1)
-                    st.subheader("🟡 네트워크 영향"); st.warning(p2)
-                    st.subheader("🟢 권장 조치"); st.success(p3)
-                except: st.markdown(result)
+                st.markdown(result)
 
 # ========================================================
 # [TAB 2] 스펙 조회기
