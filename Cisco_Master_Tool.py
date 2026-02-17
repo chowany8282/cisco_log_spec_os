@@ -65,24 +65,31 @@ def clear_os_input():
     st.session_state["os_ver"] = ""
 
 # ========================================================
-# 🤖 사이드바 설정
+# 🤖 사이드바 설정 (모델 메뉴 수정됨)
 # ========================================================
 with st.sidebar:
     st.header("🤖 엔진 설정")
+    
+    # [수정] 모델 선택 리스트에 '1.5 Flash' 추가
     selected_model_name = st.selectbox(
         "사용할 AI 모델을 선택하세요:",
-        ("Gemini 2.5 Flash Lite (가성비)", "Gemini 2.5 Flash (표준)", "Gemini 3 Flash Preview (최신)")
+        (
+            "Gemini 1.5 Flash (안정성/로그분석 추천)",  # 추가됨
+            "Gemini 2.0 Flash (최신/균형)",
+            "Gemini 2.0 Flash Lite (초고속/가성비)"
+        )
     )
     
-    if "Lite" in selected_model_name: 
-        MODEL_ID = "models/gemini-2.5-flash-lite"
-        current_model_type = "lite"
-    elif "Gemini 3" in selected_model_name: 
-        MODEL_ID = "models/gemini-3-flash-preview"
-        current_model_type = "pro"
-    else: 
-        MODEL_ID = "models/gemini-2.5-flash"
+    # [수정] 모델 매핑 로직 (정확한 ID 연결)
+    if "1.5 Flash" in selected_model_name: 
+        MODEL_ID = "models/gemini-1.5-flash"
         current_model_type = "flash"
+    elif "2.0 Flash Lite" in selected_model_name: 
+        MODEL_ID = "models/gemini-2.0-flash-lite-preview-02-05" # 최신 라이트 버전
+        current_model_type = "lite"
+    else: 
+        MODEL_ID = "models/gemini-2.0-flash" # 기본 2.0 Flash
+        current_model_type = "pro" # 편의상 pro 카운터로 분류
 
     st.success(f"선택됨: {selected_model_name}")
     st.markdown("---")
@@ -143,7 +150,7 @@ st.title("🛡️ Cisco Technical AI Dashboard")
 tab0, tab1, tab2, tab3 = st.tabs(["🚨 특이 로그 선별 (Anomaly)", "📊 로그 정밀 분석", "🔍 하드웨어 스펙", "💿 OS 추천"])
 
 # ========================================================
-# [TAB 0] 로그 선별기 (특이사항 집중 필터링)
+# [TAB 0] 로그 선별기
 # ========================================================
 with tab0:
     st.header("⚡ 특이 로그 정밀 추출 (Significant Anomalies)")
@@ -173,7 +180,6 @@ with tab0:
             st.warning("로그를 입력해주세요!")
         else:
             with st.spinner("🤖 AI가 '통상적인 로그'를 제거하고 '특이 사항'만 추출 중..."):
-                # [핵심 수정] 일반 장애도 제외, 오직 '특이 사항'만 타겟팅
                 prompt = f"""
                 당신은 Cisco 로그 분석의 최종 권위자입니다.
                 제공된 로그에서 **'통상적인 운영 로그'는 완벽히 배제**하고, **엔지니어의 분석이 필요한 '특이 사항(Anomaly)'**만 정밀 추출하세요.
@@ -215,7 +221,6 @@ with tab0:
                 ```
                 └─ (설명) 브로드캐스트 스톰 발생으로 인한 트래픽 차단 동작. 루핑 점검 필요.
                 """
-                # API_KEY_OS 사용
                 classified_result = get_gemini_response(prompt, API_KEY_OS, 'os')
                 st.session_state['classified_result'] = classified_result 
                 
@@ -292,8 +297,6 @@ with tab2:
                 prompt = f"""
                 [대상 모델]: {model_input}
                 위 모델의 하드웨어 스펙을 표(Table)로 요약해주세요.
-                항목: Fixed Ports, Switching Capacity, Forwarding Rate, CPU/Memory, Power.
-                주요 특징 3가지 포함. 한국어 답변.
                 """
                 st.markdown(get_gemini_response(prompt, API_KEY_SPEC, 'spec'))
 
