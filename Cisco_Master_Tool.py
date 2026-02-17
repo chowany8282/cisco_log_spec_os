@@ -1,7 +1,7 @@
 import streamlit as st
 import google.generativeai as genai
 import datetime
-from collections import Counter  # [핵심] 중복 카운팅 도구
+from collections import Counter # [핵심] 중복 제거 및 카운팅 도구
 
 # ========================================================
 # 🎨 페이지 기본 설정
@@ -13,7 +13,7 @@ st.set_page_config(
 )
 
 # ========================================================
-# 🔑 사용자 API 키 설정
+# 🔑 사용자 API 키 설정 (다른 탭에서 AI 쓸 때 필요)
 # ========================================================
 try:
     API_KEY_LOG = st.secrets["API_KEY_LOG"]
@@ -52,6 +52,7 @@ with st.sidebar:
     
     st.success(f"선택: {model_opt}")
 
+# AI 호출 함수 (정밀 분석용)
 def get_gemini_response(prompt, key, prefix):
     try:
         genai.configure(api_key=key)
@@ -67,14 +68,14 @@ def get_gemini_response(prompt, key, prefix):
 # ========================================================
 st.title("🛡️ Cisco Technical AI Dashboard")
 
-tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 분류 (Speed)", "📊 정밀 분석", "🔍 스펙 조회", "💿 OS 추천"])
+tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 분류 (Logic)", "📊 정밀 분석", "🔍 스펙 조회", "💿 OS 추천"])
 
 # ========================================================
-# [TAB 0] 로그 분류 (중복 제거 + 속도 최적화)
+# [TAB 0] 로그 분류 (순수 Python 로직 - AI 미사용)
 # ========================================================
 with tab0:
-    st.header("⚡ 핵심 로그 요약 (중복 제거)")
-    st.caption("똑같은 로그는 하나로 합치고 횟수만 표시합니다. (속도 매우 빠름)")
+    st.header("⚡ 로그 정밀 분류 (Rule-Based)")
+    st.caption("AI를 거치지 않고, **시스코 심각도 규칙(Severity)**에 따라 즉시 분류합니다.")
     
     with st.form("upload_form", clear_on_submit=False):
         uploaded_file = st.file_uploader("📂 로그 파일 선택 (.txt, .log)", type=['txt', 'log'])
@@ -98,68 +99,67 @@ with tab0:
 
         if final_log:
             # ------------------------------------------------
-            # [LOGIC] Counter를 사용한 중복 제거 및 카운팅
+            # [PURE LOGIC] Counter 사용 (AI 제거됨)
             # ------------------------------------------------
-            
-            # 1. Counter 객체 생성 (자동으로 개수 세주는 도구)
             crit_counter = Counter()
             warn_counter = Counter()
             
             lines = final_log.splitlines()
             
-            # 2. 무시할 키워드 (False Alarm)
+            # [분류 필터]
+            # 1. 무시할 것들 (False Alarm)
             ignore_keywords = ["transceiver absent", "administratively down", "mgmt0", "default policer", "removed", "inserted", "vty", "last reset"]
             
-            # 3. 잡아낼 키워드
-            crit_keywords = ["-0-", "-1-", "-2-", "traceback", "crash", "reload", "stuck", "panic"]
-            warn_keywords = ["-3-", "-4-", "error", "warning", "threshold", "exceeded", "buffer", "tahusd", "fail", "collision"]
+            # 2. Critical (0, 1, 2)
+            crit_keywords = ["-0-", "-1-", "-2-", "traceback", "crash", "reload", "stuck", "panic", "critical", "emergency", "alert"]
             
-            # 4. 한 줄씩 분석 (리스트에 담지 않고 바로 카운팅)
-            total_processed = 0
+            # 3. Warning (3, 4)
+            warn_keywords = ["-3-", "-4-", "error", "warning", "threshold", "exceeded", "buffer", "tahusd", "fail", "collision", "duplex mismatch"]
+            
+            total_count = 0
+            
             for line in lines:
                 line_strip = line.strip()
                 if not line_strip: continue
                 line_lower = line_strip.lower() 
                 
-                # 예외 처리
+                # 0. 예외 처리
                 if any(x in line_lower for x in ignore_keywords):
                     continue 
 
-                # Critical 카운팅
+                # 1. Critical
                 if any(x in line_lower for x in crit_keywords):
                     crit_counter[line_strip] += 1
-                    total_processed += 1
+                    total_count += 1
                 
-                # Warning 카운팅
+                # 2. Warning
                 elif any(x in line_lower for x in warn_keywords):
                     warn_counter[line_strip] += 1
-                    total_processed += 1
+                    total_count += 1
+                
+                # Info는 무시 (속도 및 가독성 최적화)
 
             # ------------------------------------------------
-            # [결과 출력] 중복 합쳐서 텍스트 생성
+            # [결과 출력]
             # ------------------------------------------------
+            report_lines = [f"### 📊 분석 결과 (총 {total_count}건의 이슈 발견)"]
             
-            report_lines = [f"### 📊 로그 분석 결과 (총 {len(lines)}줄 중 유효 로그 {total_processed}건)"]
-            
-            # Critical 출력 (많이 발생한 순서대로 정렬)
-            report_lines.append(f"\n#### 🔴 Critical ({sum(crit_counter.values())}회 발생)")
+            # Critical
+            report_lines.append(f"\n#### 🔴 Critical ({sum(crit_counter.values())}회)")
             if crit_counter:
                 for log_msg, count in crit_counter.most_common():
-                    if count > 1:
-                        report_lines.append(f"- `{log_msg}` **(x {count}회)**")
-                    else:
-                        report_lines.append(f"- `{log_msg}`")
+                     # 반복 횟수 표시
+                    if count > 1: report_lines.append(f"- `{log_msg}` **(x {count}회)**")
+                    else: report_lines.append(f"- `{log_msg}`")
             else:
-                report_lines.append("- ✅ 발견되지 않음 (Clean)")
+                report_lines.append("- ✅ 발견되지 않음")
 
-            # Warning 출력 (많이 발생한 순서대로 정렬)
-            report_lines.append(f"\n#### 🟡 Warning ({sum(warn_counter.values())}회 발생)")
+            # Warning
+            report_lines.append(f"\n#### 🟡 Warning ({sum(warn_counter.values())}회)")
             if warn_counter:
                 for log_msg, count in warn_counter.most_common():
-                    if count > 1:
-                        report_lines.append(f"- `{log_msg}` **(x {count}회)**")
-                    else:
-                        report_lines.append(f"- `{log_msg}`")
+                    if count > 1: report_lines.append(f"- `{log_msg}` **(x {count}회)**")
+                    else: report_lines.append(f"- `{log_msg}`")
             else:
                 report_lines.append("- ✅ 발견되지 않음")
             
@@ -178,9 +178,9 @@ with tab0:
         st.markdown(st.session_state['res_class'])
         
         st.download_button(
-            label="📥 요약 로그 저장 (txt)",
+            label="📥 결과 텍스트로 저장",
             data=st.session_state['res_class'],
-            file_name="Log_Summary.txt",
+            file_name="Log_Classification_Result.txt",
             mime="text/plain",
             key="down_0"
         )
@@ -190,7 +190,7 @@ with tab0:
             st.success("복사 완료! 옆 탭으로 이동하세요.")
 
 # ========================================================
-# [TAB 1] 정밀 분석
+# [TAB 1] 정밀 분석 (여기는 심층 분석이라 AI 사용)
 # ========================================================
 with tab1:
     st.header("🕵️‍♀️ 심층 분석 (RCA)")
@@ -228,7 +228,7 @@ with tab1:
         )
 
 # ========================================================
-# [TAB 2] 스펙 조회
+# [TAB 2] 스펙 조회 (AI)
 # ========================================================
 with tab2:
     st.header("스펙 조회")
@@ -257,7 +257,7 @@ with tab2:
         )
 
 # ========================================================
-# [TAB 3] OS 추천
+# [TAB 3] OS 추천 (AI)
 # ========================================================
 with tab3:
     st.header("OS 추천")
