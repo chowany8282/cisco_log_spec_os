@@ -2,7 +2,8 @@
 enableCORS = false
 enableXsrfProtection = false
 maxUploadSize = 200
-enableWebsocketCompression = false  # <--- 이 줄이 모바일 업로드 끊김을 막아줍니다!
+enableWebsocketCompression = false
+heartbeatTimeout = 300  # <--- [핵심] 300초(5분) 동안은 끊지 말고 기다려!
 
 [browser]
 gatherUsageStats = false
