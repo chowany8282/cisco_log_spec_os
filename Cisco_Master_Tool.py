@@ -140,14 +140,14 @@ def get_gemini_response(prompt, current_api_key, func_prefix):
 # ========================================================
 st.title("🛡️ Cisco Technical AI Dashboard")
 
-tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 선별 (AI Filter)", "📊 로그 정밀 분석", "🔍 하드웨어 스펙", "💿 OS 추천"])
+tab0, tab1, tab2, tab3 = st.tabs(["🚨 특이 로그 선별 (Anomaly)", "📊 로그 정밀 분석", "🔍 하드웨어 스펙", "💿 OS 추천"])
 
 # ========================================================
-# [TAB 0] 로그 선별기 (인터페이스 다운 제외)
+# [TAB 0] 로그 선별기 (특이 로그 필터링)
 # ========================================================
 with tab0:
-    st.header("⚡ 스마트 로그 선별 (Action Required)")
-    st.caption("AI가 판단하여 **엔지니어가 반드시 조치해야 할 핵심 로그**만 보여줍니다.")
+    st.header("⚡ 특이 로그 정밀 선별 (Anomaly Detection)")
+    st.caption("일반적인 장애 로그는 제외하고, **시스템 크래시/메모리 오류 등 '특이한 로그'**만 찾아냅니다.")
     
     uploaded_file = st.file_uploader("📂 로그 파일 업로드 (txt, log)", type=["txt", "log"])
     raw_log_input = st.text_area("📝 또는 여기에 로그를 직접 붙여넣으세요:", height=200, key="raw_log_area")
@@ -172,27 +172,27 @@ with tab0:
         if not final_log_content:
             st.warning("로그를 입력해주세요!")
         else:
-            with st.spinner("🤖 AI가 '단순 링크 다운'은 무시하고 '진짜 위험'만 찾는 중..."):
-                # [수정된 프롬프트] Link Down/Up을 강력하게 제외
+            with st.spinner("🤖 AI가 시스템 크래시 및 특이 패턴을 분석 중..."):
+                # [수정된 프롬프트] 일반 장애 제외, 특이 로그(Anomaly) 집중
                 prompt = f"""
                 당신은 Cisco TAC 최고 레벨 엔지니어입니다.
-                제공된 로그 중에서 **엔지니어가 반드시 확인하고 조치해야 하는 '실질적인 장애/위협 로그'**만 선별하세요.
+                제공된 로그 중에서 **통상적이지 않은 '특이 로그(Anomaly/Crash/Error)'**만 정밀 선별하세요.
 
-                [AI 판단 기준 (Strict Filtering)]
-                1. **무조건 제외할 로그 (Ignore List):**
-                   - **모든 종류의 단순 Link Down/Up (Interface Down, Link Failure 등)**
-                   - 예: `%ETHPORT-5-IF_DOWN_LINK_FAILURE`, `%LINK-3-UPDOWN`, `Changed state to down`
-                   - Config 저장 메시지, 날짜/시간(Timestamp)이 없는 텍스트
-                   - 단순 Info/Notice 레벨
-                2. **반드시 포함할 로그 (Critical Actions):**
-                   - **Hardware Failure:** Fan, Power, Module, SFP(Transceiver), ASIC Error
-                   - **Err-Disable:** 포트가 에러로 인해 강제로 닫힌 경우 (`err-disable`)
-                   - **Service Impact:** Protocol Down (OSPF/BGP/EIGRP), Unexpected Reboot (Crash)
-                   - **Risk Warning:** High Temperature, Voltage Alarm, Memory/CPU Exhaustion
-                   - **Network Quality:** 지속적인 CRC Error, Input Error, Output Drop
-                3. **중복 압축 (Dedup):** 같은 로그는 하나로 합치고 제목 옆에 (총 N회 발생) 표기.
+                [AI 판단 기준 (Anomaly Detection)]
+                1. **무시할 로그 (Normal/Common):**
+                   - 단순 Link Flapping (Up/Down) - *중요하지 않음*
+                   - Config 저장, 로그인 성공/실패
+                   - 단순한 상태 변경 (State changed to Up/Down)
+                   - 일반적인 Info/Notice 레벨 메시지
+                2. **반드시 추출할 특이 로그 (Critical Anomalies):**
+                   - **System Crash/Traceback:** `Traceback`, `Crash`, `System Reset`, `Unexpected exception`
+                   - **Internal Error:** `Parity Error`, `ECC Error`, `ASIC Error`, `Memory Error`
+                   - **Resource Exhaustion:** `Malloc Fail`, `CPU Hog`, `Memory fragmentation`, `Process Crash`
+                   - **Severe Protocol Fail:** `BGP Notification`, `OSPF Neighbor Down` (단순 플래핑 제외)
+                   - **Environment:** `Overheating`, `Power Supply Fail`
+                3. **중복 압축:** 동일 패턴은 하나로 합치고 (총 N회) 표기.
 
-                [출력 레이아웃]
+                [중요: 출력 레이아웃]
                 - **로그 코드 블록(Code Block)을 무조건 맨 위**에 배치하세요.
                 - 설명은 코드 블록 **아래**에 '└─' 기호를 써서 간략히 적으세요.
 
@@ -200,21 +200,21 @@ with tab0:
                 {final_log_content}
 
                 [출력 형식 예시]
-                ### 🚨 조치 필수 (Critical Actions)
+                ### 🚨 시스템 치명적 오류 (System Critical)
                 
-                **1. 모듈 1번 하드웨어 고장 (총 5회 발생)**
+                **1. 시스템 크래시 발생 (총 1회 발생)**
                 ```
-                2024 Jan 31 21:03:03 %MODULE-2-FAILED: Module 1 failed
+                2024 Jan 31 21:03:03 %SYS-2-MALLOCFAIL: Memory allocation of 65536 bytes failed...
                 ```
-                └─ (설명) 하드웨어 교체가 필요한 상태입니다.
+                └─ (설명) 메모리 할당 실패로 인한 시스템 불안정 상태입니다.
 
-                ### ⚠️ 정밀 점검 필요 (Investigation Needed)
+                ### ⚠️ 하드웨어/내부 오류 (Internal Error)
                 
-                **1. 1번 슬롯 버퍼 임계값 초과 (총 342회 발생)**
+                **1. ASIC 패리티 에러 감지 (총 3회 발생)**
                 ```
-                2024 Jan 31 22:00:00 %TAHUSD-4-BUFFER_THRESHOLD: Buffer threshold exceeded
+                2024 Jan 31 22:00:00 %HARDWARE-3-ASIC_ERROR: Parity error detected on ASIC 0
                 ```
-                └─ (설명) 트래픽 폭주로 인한 패킷 드랍이 의심됩니다. QoS 설정 점검이 필요합니다.
+                └─ (설명) 칩셋 내부 데이터 오염이 감지되었습니다. 장비 교체가 권장됩니다.
                 """
                 # API_KEY_OS 사용
                 classified_result = get_gemini_response(prompt, API_KEY_OS, 'os')
@@ -230,7 +230,7 @@ with tab0:
                  st.session_state['log_transfer'] = st.session_state['classified_result']
                  st.success("✅ 복사 완료! 상단의 '📊 로그 정밀 분석' 탭으로 이동하세요.")
         
-        st.subheader("🎯 AI 선별 결과 (Actionable Items)")
+        st.subheader("🎯 AI 선별 결과 (System Anomalies)")
         st.markdown(st.session_state['classified_result'])
 
 # ========================================================
