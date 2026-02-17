@@ -25,66 +25,71 @@ except Exception as e:
     st.stop()
 
 # ========================================================
-# ⏳ 사용량 카운터 초기화 (세션 상태 관리)
+# ⏳ 사용량 카운터 초기화 (기능별 분리)
 # ========================================================
 # 1. 오늘 날짜 확인
 today_str = datetime.date.today().isoformat()
 
-# 2. 세션 상태에 '사용량 데이터'가 없거나, 날짜가 바뀌었으면 리셋
-if 'usage_data' not in st.session_state or st.session_state.usage_data['date'] != today_str:
-    st.session_state.usage_data = {
+# 2. 날짜가 바뀌었거나 데이터가 없으면 '0'으로 리셋
+if 'usage_stats' not in st.session_state or st.session_state.usage_stats['date'] != today_str:
+    st.session_state.usage_stats = {
         'date': today_str,
-        'Gemini 2.5 Flash Lite': 0,
-        'Gemini 2.5 Flash': 0,
-        'Gemini 3 Flash Preview': 0
+        'log': 0,   # 로그 분석 카운터
+        'spec': 0,  # 스펙 조회 카운터
+        'os': 0     # OS 추천 카운터
     }
 
 # ========================================================
-# 🤖 사이드바 설정 (카운터 표시)
+# 🤖 사이드바 설정 (카운터 별도 표시)
 # ========================================================
 with st.sidebar:
     st.header("🤖 엔진 설정")
     
-    # 모델 ID 매핑 정보
-    model_map = {
-        "Gemini 2.5 Flash Lite": "models/gemini-2.5-flash-lite",
-        "Gemini 2.5 Flash": "models/gemini-2.5-flash",
-        "Gemini 3 Flash Preview": "models/gemini-3-flash-preview"
-    }
-
-    # 선택지 문구 만들기 (예: "모델명 (오늘 사용: 5회)")
-    selection_options = []
-    for model_name in model_map.keys():
-        count = st.session_state.usage_data.get(model_name, 0)
-        selection_options.append(f"{model_name} (오늘 사용: {count}회)")
-
-    # 셀렉트박스 표시
-    selected_option_str = st.selectbox(
+    # 모델 선택
+    selected_model_name = st.selectbox(
         "사용할 AI 모델을 선택하세요:",
-        selection_options
+        ("Gemini 2.5 Flash Lite (추천/가성비)", "Gemini 2.5 Flash (표준)", "Gemini 3 Flash Preview (최신)")
     )
-
-    # 선택된 문구에서 '진짜 모델 이름'만 추출하기
-    # 예: "Gemini 2.5 Flash (오늘 사용: 5회)" -> "Gemini 2.5 Flash"
-    current_model_name = selected_option_str.split(" (오늘 사용:")[0]
-    MODEL_ID = model_map[current_model_name]
+    
+    # 모델 ID 매핑
+    if "Lite" in selected_model_name: MODEL_ID = "models/gemini-2.5-flash-lite"
+    elif "Gemini 3" in selected_model_name: MODEL_ID = "models/gemini-3-flash-preview"
+    else: MODEL_ID = "models/gemini-2.5-flash"
 
     st.success(f"현재 엔진: {MODEL_ID}")
-    st.info(f"📅 기준 날짜: {today_str}")
+    
+    st.markdown("---")
+    
+    # 📊 [NEW] 기능별 사용량 현황판
+    st.subheader("📊 API 키별 사용 현황")
+    st.caption(f"📅 기준: {today_str} (일일 리셋)")
+    
+    # 보기 좋게 메트릭(Metric) 디자인 적용
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.metric(label="Log", value=f"{st.session_state.usage_stats['log']}회")
+    with c2:
+        st.metric(label="Spec", value=f"{st.session_state.usage_stats['spec']}회")
+    with c3:
+        st.metric(label="OS", value=f"{st.session_state.usage_stats['os']}회")
+
     st.markdown("---")
     st.markdown("Created by Wan Hee Cho")
 
 # ========================================================
-# 🤖 AI 연결 함수 (카운트 증가 로직 추가)
+# 🤖 AI 연결 함수 (타겟 지정 카운팅)
 # ========================================================
-def get_gemini_response(prompt, current_api_key, model_friendly_name):
+def get_gemini_response(prompt, current_api_key, target_feature):
+    """
+    target_feature: 'log', 'spec', 'os' 중 하나
+    """
     try:
         genai.configure(api_key=current_api_key)
         model = genai.GenerativeModel(MODEL_ID)
         response = model.generate_content(prompt)
         
-        # [중요] 성공적으로 응답을 받으면 카운트 +1
-        st.session_state.usage_data[model_friendly_name] += 1
+        # [중요] 해당 기능(탭)의 카운터만 +1 증가
+        st.session_state.usage_stats[target_feature] += 1
         
         return response.text
     except Exception as e:
@@ -105,7 +110,7 @@ with tab1:
     if st.button("로그 분석 실행", key="btn_log"):
         if not log_input: st.warning("로그를 입력해주세요!")
         else:
-            with st.spinner(f"AI가 로그를 분석 중입니다... ({current_model_name})"):
+            with st.spinner(f"AI가 로그를 분석 중입니다..."):
                 prompt = f"""
                 당신은 시스코 전문가입니다. 다음 로그를 분석하되, 반드시 아래 형식대로 답변하세요.
                 로그: {log_input}
@@ -114,8 +119,8 @@ with tab1:
                 [PART_2](네트워크 영향)
                 [PART_3](조치 방법)
                 """
-                # 함수 호출 시 current_model_name을 같이 넘겨서 카운트 증가시킴
-                result = get_gemini_response(prompt, API_KEY_LOG, current_model_name)
+                # 'log' 카운터 증가 요청
+                result = get_gemini_response(prompt, API_KEY_LOG, 'log')
                 try:
                     p1 = result.split("[PART_1]")[1].split("[PART_2]")[0].strip()
                     p2 = result.split("[PART_2]")[1].split("[PART_3]")[0].strip()
@@ -139,7 +144,8 @@ with tab2:
                 항목: Fixed Ports, Switching Capacity, Forwarding Rate, CPU/Memory, Power.
                 주요 특징 3가지 포함. 한국어 답변.
                 """
-                st.markdown(get_gemini_response(prompt, API_KEY_SPEC, current_model_name))
+                # 'spec' 카운터 증가 요청
+                st.markdown(get_gemini_response(prompt, API_KEY_SPEC, 'spec'))
 
 # [TAB 3] OS 추천기
 with tab3:
@@ -198,6 +204,6 @@ with tab3:
                    </tr>
                 </table>
                 """
-                
-                response_html = get_gemini_response(prompt, API_KEY_OS, current_model_name)
+                # 'os' 카운터 증가 요청
+                response_html = get_gemini_response(prompt, API_KEY_OS, 'os')
                 st.markdown(response_html, unsafe_allow_html=True)
