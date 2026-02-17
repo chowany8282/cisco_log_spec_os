@@ -20,7 +20,7 @@ except:
     st.stop()
 
 # ========================================================
-# 💾 사용량 카운터 & 상태 관리
+# 💾 상태 관리
 # ========================================================
 @st.cache_resource
 def get_shared_usage_stats():
@@ -32,12 +32,13 @@ def get_shared_usage_stats():
 
 shared_data = get_shared_usage_stats()
 
+# 입력창 초기화 함수들
 def clear_tab1(): st.session_state["log_analysis_area"] = ""
 def clear_tab2(): st.session_state["input_spec"] = ""
 def clear_tab3(): st.session_state["os_model"] = ""; st.session_state["os_ver"] = ""
 
 # ========================================================
-# 🤖 사이드바 (통계 UI)
+# 🤖 사이드바
 # ========================================================
 with st.sidebar:
     st.header("🤖 엔진 설정")
@@ -53,7 +54,6 @@ with st.sidebar:
     for title, prefix in [("🚨 분석", "log"), ("🔍 스펙", "spec"), ("💿 OS", "os")]:
         st.write(f"**{title}**: {stats[f'{prefix}_{m_type}']}회")
 
-# AI 호출 함수
 def get_gemini_response(prompt, key, prefix):
     try:
         genai.configure(api_key=key)
@@ -71,16 +71,16 @@ st.title("🛡️ Cisco Technical AI Dashboard")
 tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 통합 분류", "📊 정밀 분석", "🔍 스펙 조회", "💿 OS 추천"])
 
 # --------------------------------------------------------
-# [TAB 0] 로그 통합 분류 (최신 1000줄 로직 적용)
+# [TAB 0] 로그 분류 (Strict Last 1000 Lines)
 # --------------------------------------------------------
 with tab0:
-    st.header("⚡ 장애 로그 필터링 (최신 1000줄)")
-    st.caption("파일의 가장 끝부분(최신)부터 **딱 1000줄**만 분석하여 속도를 높입니다.")
+    st.header("⚡ 최신 1000줄 정밀 분석")
+    st.caption("파일의 **맨 마지막 1000줄**만 칼같이 잘라서 분석합니다. (이전 로그 절대 포함 안 됨)")
     
     with st.form("tab0_form", clear_on_submit=False):
-        uploaded_file = st.file_uploader("📂 로그 파일 선택 (.txt, .log)", type=['txt', 'log'], key="uploader_tab0")
+        uploaded_file = st.file_uploader("📂 로그 파일 선택", type=['txt', 'log'], key="uploader_tab0")
         raw_input = st.text_area("📝 또는 직접 붙여넣기:", height=200, key="raw_log_area")
-        submitted = st.form_submit_button("🚀 분류 실행")
+        submitted = st.form_submit_button("🚀 분석 실행")
 
     if submitted:
         content = ""
@@ -90,42 +90,61 @@ with tab0:
             content = raw_input
             
         if content:
+            # 1. 전체 라인 분리
             all_lines = content.splitlines()
-            # ✨ 핵심 수정: 가장 최근 데이터인 마지막 1000줄만 선택
-            target_lines = all_lines[-1000:] 
+            total_len = len(all_lines)
             
+            # 2. [핵심] 무조건 마지막 1000줄만 추출 (슬라이싱)
+            if total_len > 1000:
+                target_lines = all_lines[-1000:]
+                msg_info = f"총 {total_len}줄 중 **최신 1000줄**만 분석했습니다."
+            else:
+                target_lines = all_lines
+                msg_info = f"총 {total_len}줄 전체를 분석했습니다. (1000줄 미만)"
+
             issue_counter = Counter()
-            issue_keywords = ["-0-", "-1-", "-2-", "-3-", "-4-", "traceback", "crash", "threshold", "exceeded", "buffer", "fail", "down"]
-            ignore = ["mgmt0", "absent", "admin down", "vty", "up"]
             
+            # 필터 키워드
+            issue_keywords = ["-0-", "-1-", "-2-", "-3-", "-4-", "traceback", "crash", "threshold", "exceeded", "buffer", "fail", "down", "error", "collision", "mismatch"]
+            ignore_keywords = [
+                "mgmt0", "absent", "admin down", "vty", "up", "changed state to up", 
+                "recovery", "recovered", "online", "ready", "inserted", "removed",
+                "authentication success", "copy complete", "link-keepalive"
+            ]
+            
+            # 3. 추출된 1000줄 내에서만 분석 시작
             for line in target_lines:
-                l = line.lower()
-                if any(k in l for k in issue_keywords) and not any(i in l for i in ignore):
+                line_lower = line.lower()
+                
+                # 이슈 키워드 포함 & 무시 키워드 미포함 체크
+                if any(k in line_lower for k in issue_keywords) and not any(i in line_lower for i in ignore_keywords):
                     # 타임스탬프 제거 후 메시지만 추출
-                    msg = line[line.find("%"):] if "%" in line else line
+                    msg = line[line.find("%"):] if "%" in line else line.strip()
                     issue_counter[msg] += 1
             
-            # 분류 결과 텍스트 생성
+            # 결과 텍스트 생성
             res_text = "\n".join([f"{m} (x {c}건)" if c > 1 else m for m, c in issue_counter.most_common()])
             st.session_state['res_class'] = res_text
             
-            st.success(f"전체 {len(all_lines)}줄 중 최근 1000줄 분석 완료!")
-            st.markdown(f"### 🚨 발견된 이슈 요약")
+            st.success(msg_info)
             
             if issue_counter:
+                st.markdown(f"### 🚨 발견된 이슈: 총 {sum(issue_counter.values())}건")
                 for m, c in issue_counter.most_common():
                     st.code(f"{m} (x {c}건)" if c > 1 else m, language="text")
             else:
-                st.info("최근 1000줄 내에 분석 기준에 맞는 특이사항이 없습니다.")
+                st.info("선택된 구간(최신 1000줄) 내에서 특이사항이 발견되지 않았습니다.")
 
+    # 결과 처리 버튼들
     if st.session_state.get('res_class'):
         st.download_button("📥 분류 결과 저장", data=st.session_state['res_class'], file_name="Recent_Issues.txt", key="dl_tab0")
+        
         if st.button("📝 분류된 이슈만 정밀 분석으로 복사", key="copy_btn"):
             st.session_state['log_analysis_area'] = st.session_state['res_class']
             st.success("복사 완료! '📊 정밀 분석' 탭으로 이동하세요.")
 
 # --------------------------------------------------------
-# [TAB 1] 정밀 분석
+# [TAB 1] 정밀 분석 (RCA)
 # --------------------------------------------------------
 with tab1:
     st.header("🕵️‍♀️ 심층 분석 (RCA)")
@@ -150,20 +169,38 @@ with tab1:
     if st.session_state.get('res_anal'):
         st.markdown(st.session_state['res_anal'], unsafe_allow_html=True)
 
-# [TAB 2], [TAB 3] 생략 (기존 기능 유지)
+# --------------------------------------------------------
+# [TAB 2] 스펙 조회
+# --------------------------------------------------------
 with tab2:
     st.header("🔍 하드웨어 스펙 조회")
     spec_in = st.text_input("모델명 입력 (예: C9300):", key="input_spec")
-    if st.button("🚀 스펙 조회", key="btn_tab2"):
-        if spec_in:
-            with st.spinner("데이터 찾는 중..."):
-                res = get_gemini_response(f"Cisco {spec_in} 하드웨어 스펙 요약 표", API_KEY_SPEC, "spec")
-                st.markdown(res, unsafe_allow_html=True)
+    col1, col2 = st.columns([1, 5])
+    with col1:
+        if st.button("🚀 스펙 조회", key="btn_tab2"):
+            if spec_in:
+                with st.spinner("데이터 찾는 중..."):
+                    res = get_gemini_response(f"Cisco {spec_in} 하드웨어 스펙 요약 표", API_KEY_SPEC, "spec")
+                    st.markdown(res, unsafe_allow_html=True)
+    with col2:
+        if st.button("🗑️ 지우기", key="clr_tab2"):
+            st.session_state["input_spec"] = ""
+            st.rerun()
+
+# --------------------------------------------------------
+# [TAB 3] OS 추천
+# --------------------------------------------------------
 with tab3:
     st.header("💿 OS 버전 추천")
     os_m = st.text_input("장비 모델명:", key="os_model")
-    if st.button("🚀 추천 버전 조회", key="btn_tab3"):
-        if os_m:
-            with st.spinner("권장 버전 분석 중..."):
-                res = get_gemini_response(f"{os_m} 장비 추천 OS 표 형식", API_KEY_OS, "os")
-                st.markdown(res, unsafe_allow_html=True)
+    col1, col2 = st.columns([1, 5])
+    with col1:
+        if st.button("🚀 추천 버전 조회", key="btn_tab3"):
+            if os_m:
+                with st.spinner("권장 버전 분석 중..."):
+                    res = get_gemini_response(f"{os_m} 장비 추천 OS 표 형식", API_KEY_OS, "os")
+                    st.markdown(res, unsafe_allow_html=True)
+    with col2:
+        if st.button("🗑️ 지우기", key="clr_tab3"):
+            st.session_state["os_model"] = ""
+            st.rerun()
