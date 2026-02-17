@@ -1,10 +1,10 @@
 [server]
-enableCORS = false
-enableXsrfProtection = false
-maxUploadSize = 200
-enableWebsocketCompression = false
-heartbeatTimeout = 300  # <--- [핵심] 300초(5분) 동안은 끊지 말고 기다려!
+enableCORS = false                  # 보안 장벽 낮춤 (모바일 접속 원활)
+enableXsrfProtection = false        # 보안 장벽 낮춤 (업로드 차단 방지)
+maxUploadSize = 500                 # 용량 제한 500MB로 넉넉하게
+enableWebsocketCompression = false  # [핵심] 모바일 데이터 환경에서 끊김 방지
+fileWatcherType = "none"            # [핵심] 불필요한 감시 꺼서 서버 부하 줄임
 
 [browser]
-gatherUsageStats = false
+gatherUsageStats = false            # 통계 전송 꺼서 속도 향상
 serverAddress = "0.0.0.0"
