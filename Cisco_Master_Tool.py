@@ -73,15 +73,15 @@ st.title("🛡️ Cisco Technical AI Dashboard")
 tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 분류", "📊 정밀 분석", "🔍 스펙 조회", "💿 OS 추천"])
 
 # ========================================================
-# [TAB 0] 로그 분류
+# [TAB 0] 로그 분류 (분류 성능 대폭 강화)
 # ========================================================
 with tab0:
     st.header("⚡ 로그 자동 분류")
     
-    # 1. 파일 제한 적용 (type=['txt', 'log'])
+    # 1. 파일 제한 및 폼 설정
     with st.form("upload_form", clear_on_submit=False):
         uploaded_file = st.file_uploader("📂 로그 파일 선택 (.txt, .log 만 가능)", type=['txt', 'log'])
-        raw_log_input = st.text_area("📝 또는 로그 붙여넣기:", height=150, key="raw_log_area")
+        raw_log_input = st.text_area("📝 또는 로그 붙여넣기:", height=200, key="raw_log_area")
         submitted = st.form_submit_button("🚀 분류 실행")
 
     st.button("🗑️ 지우기", on_click=clear_log_input, key="clr_0")
@@ -100,27 +100,65 @@ with tab0:
             final_log = raw_log_input
 
         if final_log:
-            with st.spinner("분석 중..."):
+            with st.spinner("로그 패턴 정밀 분석 중... (잡다한 로그 제거 중)"):
+                # [🔥 핵심 수정] 프롬프트를 아주 구체적으로 변경하여 분류 정확도 향상
                 prompt = f"""
-                Cisco 엔지니어로서 로그를 Critical, Warning, Info로 분류하고 
-                핵심 로그 원본과 간략한 설명을 제공하세요. (전체 리스트 출력 금지)
-                [로그] {final_log[:30000]} 
+                당신은 Cisco 본사의 **Senior TAC 엔지니어**입니다.
+                제공된 로그 파일에서 **장애 원인 분석에 필요한 핵심 로그**만 추출하여 분류하세요.
+                
+                [🚨 분류 기준 (Strict Rules)]
+                1. **Critical (즉시 조치 필요):** - 장비 Crash, 재부팅(Reload), 모듈 Fail, Power Fail, Fan Fail.
+                   - OSPF/BGP/EIGRP Neighbor Down (단, 의도적 종료 제외).
+                   - Interface Link Down (단, 'Admin down'이나 'Transceiver Absent'는 제외).
+                   - 온도 경보(Over Temperature).
+
+                2. **Warning (점검 필요):** - CPU/Memory High Usage (임계치 초과).
+                   - Smart License 관련 인증 실패/만료.
+                   - SFP 트랜시버 호환성 경고 (Unqualified/Not Supported).
+                   - Port-Security Violation (포트 보안 위반).
+                   - Duplex Mismatch.
+
+                3. **Info (주요 변경 사항):** - Config 변경 내역(Configure terminal).
+                   - 사용자 로그인/로그아웃.
+                   - (주의: 단순한 Up/Down 반복이나 상태 조회 로그는 과감히 생략하세요.)
+
+                [출력 형식]
+                전체 로그를 다 보여주지 말고, **같은 유형의 로그는 하나로 묶어서** 요약하세요.
+                
+                ### 🔴 Critical
+                **1. 모듈 2번 장애 발생 (Module Failed)**
+                - **발생 횟수:** 1회
+                - **설명:** 모듈 2번이 응답하지 않아 시스템에서 격리되었습니다.
+                ```
+                %MODULE-2-FAILED: Module 2 failed
+                ```
+
+                ### 🟡 Warning
+                **1. 스마트 라이선스 인증 실패**
+                - **발생 횟수:** 다수
+                - **설명:** 라이선스 서버와 통신이 되지 않아 인증이 실패했습니다.
+                ```
+                %SMART_LIC-3-AUTHORIZATION_FAILED: ...
+                ```
+
+                [입력 로그 데이터]
+                {final_log[:50000]} 
                 """
+                # (로그가 너무 길면 잘릴 수 있어서 5만 자로 제한)
+
                 res = get_gemini_response(prompt, API_KEY_LOG, 'log')
                 
-                # [중요] 결과를 세션 상태에 저장 (다운로드 유지용)
                 st.session_state['res_class'] = res
                 st.session_state['log_buf'] = final_log
         else:
             st.warning("파일을 선택하거나 내용을 입력하세요.")
 
-    # 결과 화면 및 다운로드 (세션 상태에서 불러옴)
+    # 결과 화면 및 다운로드
     if 'res_class' in st.session_state:
         st.markdown("---")
         st.subheader("🎯 분석 제안")
         st.markdown(st.session_state['res_class'], unsafe_allow_html=True)
         
-        # [다운로드 버튼]
         st.download_button(
             label="📥 결과 텍스트로 저장",
             data=st.session_state['res_class'],
@@ -146,16 +184,22 @@ with tab1:
         if st.button("🚀 분석 실행"):
             if log_in:
                 with st.spinner("분석 중..."):
-                    prompt = f"Cisco Tier 3 엔지니어 관점에서 근본 원인(Root Cause)과 해결책(CLI)을 제시하세요.\n[로그] {log_in[:30000]}"
+                    prompt = f"""
+                    Cisco Tier 3 엔지니어 관점에서 근본 원인(Root Cause)과 해결책(CLI)을 제시하세요.
+                    **한글**로 답변하고, 다음 항목을 포함하세요:
+                    1. 근본 원인 (Root Cause)
+                    2. 서비스 영향도 (Impact)
+                    3. 조치 방법 (Action Plan - 구체적 명령어 포함)
+                    
+                    [로그] {log_in[:30000]}
+                    """
                     res = get_gemini_response(prompt, API_KEY_LOG, 'log')
-                    # [중요] 결과 저장
                     st.session_state['res_anal'] = res
             else:
                 st.warning("로그를 입력하세요.")
     with col2:
         st.button("🗑️ 지우기", on_click=clear_analysis_input, key="clr_1")
 
-    # 결과 표시 및 다운로드
     if 'res_anal' in st.session_state:
         st.markdown(st.session_state['res_anal'], unsafe_allow_html=True)
         st.download_button(
