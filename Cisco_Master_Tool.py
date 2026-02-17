@@ -28,7 +28,7 @@ except Exception as e:
 # ========================================================
 today_str = datetime.date.today().isoformat()
 
-# 카운터 키 목록 정의 (기능_모델)
+# 카운터 키 목록 정의
 usage_keys = [
     "log_lite", "log_flash", "log_pro",
     "spec_lite", "spec_flash", "spec_pro",
@@ -42,7 +42,7 @@ if 'usage_stats' not in st.session_state or st.session_state.usage_stats.get('da
         st.session_state.usage_stats[key] = 0
 
 # ========================================================
-# 🤖 사이드바 설정 (사용자가 원하는 계층형 디자인)
+# 🤖 사이드바 설정 (계층형 디자인)
 # ========================================================
 with st.sidebar:
     st.header("🤖 엔진 설정")
@@ -53,7 +53,7 @@ with st.sidebar:
         ("Gemini 2.5 Flash Lite (가성비)", "Gemini 2.5 Flash (표준)", "Gemini 3 Flash Preview (최신)")
     )
     
-    # 2. 모델 매핑 (ID 및 내부 식별자)
+    # 2. 모델 매핑
     if "Lite" in selected_model_name: 
         MODEL_ID = "models/gemini-2.5-flash-lite"
         current_model_type = "lite"
@@ -67,11 +67,10 @@ with st.sidebar:
     st.success(f"선택됨: {selected_model_name}")
     st.markdown("---")
 
-    # 3. [NEW] 사용량 현황판 (작은 폰트, 계층형 구조)
+    # 3. 사용량 현황판 (스타일 적용)
     st.markdown("### 📊 일일 사용량 현황")
     st.caption(f"📅 {today_str} 기준 (자정 리셋)")
 
-    # 스타일 CSS (글씨 크기 조절)
     count_style = """
     <style>
         .usage-box { margin-bottom: 15px; padding: 10px; background-color: #f0f2f6; border-radius: 5px; }
@@ -82,7 +81,6 @@ with st.sidebar:
     """
     st.markdown(count_style, unsafe_allow_html=True)
 
-    # 데이터를 보여주는 헬퍼 함수
     def draw_usage(title, prefix):
         lite = st.session_state.usage_stats[f"{prefix}_lite"]
         flash = st.session_state.usage_stats[f"{prefix}_flash"]
@@ -97,7 +95,6 @@ with st.sidebar:
         </div>
         """, unsafe_allow_html=True)
 
-    # 3개 영역 출력
     draw_usage("📊 로그 분석 (Log Key)", "log")
     draw_usage("🔍 스펙 조회 (Spec Key)", "spec")
     draw_usage("💿 OS 추천 (OS Key)", "os")
@@ -106,19 +103,15 @@ with st.sidebar:
     st.markdown("Created by Wan Hee Cho")
 
 # ========================================================
-# 🤖 AI 연결 함수 (9개 조합 카운팅 로직)
+# 🤖 AI 연결 함수
 # ========================================================
 def get_gemini_response(prompt, current_api_key, func_prefix):
-    """
-    func_prefix: 'log', 'spec', 'os'
-    current_model_type: 'lite', 'flash', 'pro' (전역변수)
-    """
     try:
         genai.configure(api_key=current_api_key)
         model = genai.GenerativeModel(MODEL_ID)
         response = model.generate_content(prompt)
         
-        # [핵심] 기능과 모델을 조합해서 카운트 증가 (예: log_pro)
+        # 카운트 증가
         count_key = f"{func_prefix}_{current_model_type}"
         st.session_state.usage_stats[count_key] += 1
         
@@ -150,7 +143,6 @@ with tab1:
                 [PART_2](네트워크 영향)
                 [PART_3](조치 방법)
                 """
-                # 'log' 접두사 전달
                 result = get_gemini_response(prompt, API_KEY_LOG, 'log')
                 try:
                     p1 = result.split("[PART_1]")[1].split("[PART_2]")[0].strip()
@@ -175,27 +167,43 @@ with tab2:
                 항목: Fixed Ports, Switching Capacity, Forwarding Rate, CPU/Memory, Power.
                 주요 특징 3가지 포함. 한국어 답변.
                 """
-                # 'spec' 접두사 전달
                 st.markdown(get_gemini_response(prompt, API_KEY_SPEC, 'spec'))
 
-# [TAB 3] OS 추천기
+# [TAB 3] OS 추천기 (수정됨: 장비 계열 선택 추가)
 with tab3:
     st.header("OS 추천 및 안정성 진단")
-    st.caption("💡 추천 OS와 안정성 등급을 확인하고, **우측 링크를 클릭하여 EOL 날짜를 검증**하세요.")
+    st.caption("💡 장비 계열을 먼저 선택하면 더 정확한 추천을 받을 수 있습니다.")
+
+    # [NEW] 장비 계열 선택 (Radio Button)
+    device_family = st.radio(
+        "장비 계열 선택 (Device Family)",
+        ("Catalyst (IOS-XE)", "Nexus (NX-OS)"),
+        horizontal=True
+    )
     
     col1, col2 = st.columns(2)
-    with col1: os_model = st.text_input("장비 모델명", placeholder="예: Nexus 93180YC-FX", key="os_model")
-    with col2: os_ver = st.text_input("현재 버전 (선택)", placeholder="예: 17.06.01", key="os_ver")
+    with col1: os_model = st.text_input("장비 모델명", placeholder="예: C9300-48P or N9K-C93180YC-FX", key="os_model")
+    with col2: os_ver = st.text_input("현재 버전 (선택)", placeholder="예: 17.09.04a or 10.2(3)", key="os_ver")
         
     if st.button("OS 분석 실행", key="btn_os"):
         if not os_model: st.warning("장비 모델명은 필수입니다!")
         else:
-            with st.spinner("안정성(Stability) 데이터 분석 및 HTML 리포트 생성 중..."):
-                current_ver_query = f"Cisco {os_model} {os_ver if os_ver else ''} Last Date of Support"
+            with st.spinner(f"{device_family} 데이터베이스 검색 중..."):
+                
+                # 프롬프트 제약 조건 설정 (선택에 따라 달라짐)
+                if "Nexus" in device_family:
+                    family_prompt = "당신은 Cisco Nexus(NX-OS) 전문가입니다. 반드시 **NX-OS 버전**만 추천하세요. IOS-XE 버전을 추천하면 절대 안 됩니다."
+                    search_keyword = "Nexus"
+                else:
+                    family_prompt = "당신은 Cisco Catalyst(IOS-XE) 전문가입니다. 반드시 **IOS-XE 버전**만 추천하세요. NX-OS 버전을 추천하면 절대 안 됩니다."
+                    search_keyword = "Catalyst"
+
+                current_ver_query = f"Cisco {search_keyword} {os_model} {os_ver if os_ver else ''} Last Date of Support"
                 current_ver_url = f"https://www.google.com/search?q={current_ver_query.replace(' ', '+')}"
 
                 prompt = f"""
-                당신은 시스코 TAC 엔지니어입니다.
+                {family_prompt}
+                
                 다음 장비의 **OS 소프트웨어**를 분석하여 **HTML Table** 코드로 출력하세요.
 
                 [필수 지침]
@@ -210,7 +218,7 @@ with tab3:
                 - 안정성 등급은 별점(⭐⭐⭐⭐⭐)으로 표시.
                 - 'Last Date of Support'는 예측값을 기입.
 
-                [대상 장비]: {os_model}
+                [대상 장비]: {os_model} ({device_family} 계열)
                 [현재 OS 버전]: {os_ver if os_ver else '정보 없음'}
                 [현재 버전 검증 링크]: {current_ver_url}
 
@@ -226,14 +234,14 @@ with tab3:
                    </tr>
                    <tr>
                       <td>🥇 1순위</td>
-                      <td>17.9.5</td>
+                      <td>(버전)</td>
                       <td>⭐⭐⭐⭐⭐</td>
-                      <td>2027-10-31</td>
+                      <td>(날짜)</td>
                       <td>안정성 우수</td>
-                      <td><a href='https://www.google.com/search?q=Cisco+{os_model}+17.9.5+Last+Date+of+Support' target='_blank'>🔍 EOL 확인</a></td>
+                      <td><a href='https://www.google.com/search?q=Cisco+{os_model}+EOL' target='_blank'>🔍 EOL 확인</a></td>
                    </tr>
                 </table>
                 """
-                # 'os' 접두사 전달
+                
                 response_html = get_gemini_response(prompt, API_KEY_OS, 'os')
                 st.markdown(response_html, unsafe_allow_html=True)
