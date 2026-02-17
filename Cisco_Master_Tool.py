@@ -140,14 +140,14 @@ def get_gemini_response(prompt, current_api_key, func_prefix):
 # ========================================================
 st.title("🛡️ Cisco Technical AI Dashboard")
 
-tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 선별 (위험/주의)", "📊 로그 정밀 분석", "🔍 하드웨어 스펙", "💿 OS 추천"])
+tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 선별 (중복압축)", "📊 로그 정밀 분석", "🔍 하드웨어 스펙", "💿 OS 추천"])
 
 # ========================================================
-# [TAB 0] 로그 선별기 (위험/주의 로그만 필터링)
+# [TAB 0] 로그 선별기 (중복 제거 기능 추가)
 # ========================================================
 with tab0:
-    st.header("⚡ 장애 로그 자동 추출")
-    st.caption("날짜가 포함된 로그 중 **Critical(위험)** 및 **Warning(주의)** 수준의 로그만 골라냅니다.")
+    st.header("⚡ 장애 로그 자동 추출 및 압축")
+    st.caption("날짜가 포함된 **Critical/Warning** 로그만 골라내고, **반복되는 로그는 하나로 압축**합니다.")
     
     uploaded_file = st.file_uploader("📂 로그 파일 업로드 (txt, log)", type=["txt", "log"])
     raw_log_input = st.text_area("📝 또는 여기에 로그를 직접 붙여넣으세요:", height=200, key="raw_log_area")
@@ -172,28 +172,27 @@ with tab0:
         if not final_log_content:
             st.warning("로그를 입력해주세요!")
         else:
-            with st.spinner("🚨 정상(Info) 로그 제거 및 장애 로그 추출 중..."):
-                # [핵심 수정] Critical/Warning만 남기고 Info 삭제 프롬프트
+            with st.spinner("🚨 중복 로그 압축 및 장애 로그 선별 중..."):
+                # [핵심 수정] 중복 제거(Compression) 지시 사항 추가
                 prompt = f"""
                 당신은 시스코 장애 분석 전문가입니다. 
-                제공된 텍스트에서 **'위험(Critical)' 및 '주의(Warning)'** 수준의 로그만 엄격하게 추출하세요.
+                제공된 텍스트에서 **'위험(Critical)' 및 '주의(Warning)'** 수준의 로그만 추출하여 정리하세요.
 
-                [엄격한 필터링 규칙]
-                1. **Info, Notice, Debug 레벨은 과감히 삭제하세요.** (예: 'changed state to up', 'configured from console', 'link up' 등 정상 로그 제외)
-                2. 날짜/시간(Timestamp)이 없는 라인은 무조건 버리세요.
-                3. **Critical, Warning, Error, Fail, Down, Exceeded, Mismatch** 등의 장애 키워드가 있는 로그만 남기세요.
-                4. 분류 제목(Header) 없이 번호 매겨서 나열하세요.
+                [엄격한 처리 규칙]
+                1. **중복 로그 압축(Deduplication):** 동일하거나 매우 유사한 로그가 반복되면 **절대 모두 나열하지 마세요.** 대신 **대표 로그 하나만 출력**하고, 제목 옆에 **(총 N회 발생)** 형식으로 횟수를 적으세요.
+                2. **노이즈 제거:** Info, Notice, Debug 레벨 및 날짜/시간이 없는 라인은 무조건 버리세요.
+                3. **키워드 필터:** Critical, Warning, Error, Fail, Down, Exceeded, Mismatch 등이 포함된 로그 위주로 남기세요.
 
                 [입력 데이터]
                 {final_log_content}
 
                 [출력 예시]
-                **1. 모듈 1번 장애 발생**
+                **1. 모듈 1번 장애 발생 (총 52회 발생)**
                 ```
                 2024 Jan 31 21:03:03 %MODULE-2-FAILED: Module 1 failed
                 ```
                 
-                **2. 인터페이스 다운 (Link Failure)**
+                **2. 인터페이스 Ethernet1/1 다운 (총 14회 발생)**
                 ```
                 2024 Jan 31 21:05:00 %ETHPORT-5-IF_DOWN_LINK_FAILURE: Interface Ethernet1/1 is down
                 ```
