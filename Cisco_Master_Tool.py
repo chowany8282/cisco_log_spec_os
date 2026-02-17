@@ -44,11 +44,10 @@ def clear_os_input(): st.session_state["os_model"] = ""; st.session_state["os_ve
 # ========================================================
 with st.sidebar:
     st.header("🤖 엔진 설정")
-    # 성능이 좋은 모델을 기본값으로 추천
-    model_opt = st.selectbox("AI 모델:", ("Gemini 2.5 Flash (표준)", "Gemini 3 Flash Preview (최신)", "Gemini 2.5 Flash Lite"))
+    model_opt = st.selectbox("AI 모델:", ("Gemini 2.5 Flash Lite", "Gemini 2.5 Flash", "Gemini 3 Flash Preview"))
     
     if "Lite" in model_opt: MODEL_ID, m_type = "models/gemini-2.5-flash-lite", "lite"
-    elif "Gemini 3" in model_opt: MODEL_ID, m_type = "models/gemini-3-flash-preview", "pro"
+    elif "Preview" in model_opt: MODEL_ID, m_type = "models/gemini-3-flash-preview", "pro"
     else: MODEL_ID, m_type = "models/gemini-2.5-flash", "flash"
     
     st.success(f"선택: {model_opt}")
@@ -69,14 +68,14 @@ def get_gemini_response(prompt, key, prefix):
 # ========================================================
 st.title("🛡️ Cisco Technical AI Dashboard")
 
-tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 자동 분류 (AI)", "📊 정밀 분석", "🔍 스펙 조회", "💿 OS 추천"])
+tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 분류 (Logic)", "📊 정밀 분석", "🔍 스펙 조회", "💿 OS 추천"])
 
 # ========================================================
-# [TAB 0] 로그 분류 (AI 기반 - 요약 없이 전체 분류)
+# [TAB 0] 로그 분류 (순수 Python 로직 - AI 미사용)
 # ========================================================
 with tab0:
-    st.header("⚡ Cisco 로그 AI 자동 분류")
-    st.caption("AI가 로그의 문맥을 읽고 알아서 분류합니다. (키워드 등록 불필요)")
+    st.header("⚡ 로그 정밀 분류 (Rule-Based)")
+    st.caption("AI를 쓰지 않고, 시스코 표준 심각도(Severity) 규칙에 따라 기계적으로 분류합니다.")
     
     with st.form("upload_form", clear_on_submit=False):
         uploaded_file = st.file_uploader("📂 로그 파일 선택 (.txt, .log)", type=['txt', 'log'])
@@ -99,49 +98,81 @@ with tab0:
             final_log = raw_log_input
 
         if final_log:
-            with st.spinner("AI가 로그 내용을 분석하여 분류 중입니다..."):
-                # [🔥 최종 수정 프롬프트]
-                # 1. 요약 금지 (Do not summarize)
-                # 2. 문맥 파악 (buffer exceeded -> Warning/Critical 인지)
-                # 3. 원본 출력 (Output original lines)
-                prompt = f"""
-                당신은 Cisco 장비의 로그를 분석하는 최고 수준의 AI입니다.
-                입력된 로그 전체를 읽고, **내용의 심각성**을 판단하여 3가지 그룹으로 분류하세요.
-
-                [분류 원칙]
-                1. **절대 요약하지 마세요.** 모든 로그 라인을 원본 그대로 해당 그룹 아래에 나열하세요.
-                2. **문맥을 이해하세요.**
-                   - 단순히 'Error' 단어만 보지 말고, 실제 서비스 영향이 있는지 판단하세요.
-                   - 예: `buffer threshold exceeded` -> **Warning** 또는 **Critical** (단어에 fail이 없어도 내용이 심각함)
-                   - 예: `Transceiver Absent`, `Admin down`, `Configured` -> **Info** (장애 아님)
-                   - 예: `Traceback`, `Crash`, `Reload` -> **Critical**
+            # ------------------------------------------------
+            # [순수 로직] Python으로 한 줄씩 검사
+            # ------------------------------------------------
+            critical_logs = []
+            warning_logs = []
+            info_logs = []
+            
+            lines = final_log.split('\n')
+            
+            for line in lines:
+                line_str = line.strip()
+                if not line_str: continue
+                line_lower = line_str.lower() # 소문자로 변환해서 검사
                 
-                [출력 형식]
-                ### 🔴 Critical (서비스 장애/하드웨어 불량)
-                - `로그 원본 라인`
-                - `로그 원본 라인`
-                ...
+                # [0] 예외 처리: 심각해 보이지만 실제로는 별거 아닌 것들 (Info로 강제 이동)
+                # SFP 제거(Transceiver Absent), Admin Down, 관리포트(mgmt0), CoPP, VTY 설정 등
+                if any(x in line_lower for x in ["transceiver absent", "administratively down", "mgmt0", "default policer", "removed", "inserted", "vty", "last reset"]):
+                    info_logs.append(line_str)
+                    continue # 다음 줄로 넘어감
 
-                ### 🟡 Warning (임계치 초과/기능 불안정)
-                - `로그 원본 라인`
-                ...
+                # [1] Critical (심각도 0, 1, 2) + 치명적 키워드
+                # %FACILITY-0-..., -1-, -2- 패턴 찾기
+                if any(x in line_lower for x in ["-0-", "-1-", "-2-", "traceback", "crash", "reload", "stuck", "panic"]):
+                    critical_logs.append(line_str)
+                
+                # [2] Warning (심각도 3, 4) + 경고 키워드
+                # %FACILITY-3-..., -4- 패턴 찾기 (Buffer Exceeded는 보통 -4- 임)
+                elif any(x in line_lower for x in ["-3-", "-4-", "error", "warning", "threshold", "exceeded", "buffer", "tahusd", "fail"]):
+                    warning_logs.append(line_str)
+                        
+                # [3] Info (심각도 5, 6, 7) + 나머지
+                else:
+                    info_logs.append(line_str)
 
-                ### 🔵 Info (단순 알림/상태 변경)
-                - `로그 원본 라인`
-                ...
+            # ------------------------------------------------
+            # [결과 출력 생성]
+            # ------------------------------------------------
+            result_text = f"### 📊 분석 결과 (총 {len(lines)}줄)\n"
+            result_text += "> **분류 기준:** 시스코 심각도 Level 0~2(Critical), 3~4(Warning), 5~7(Info)\n\n"
+            
+            # 1. Critical
+            result_text += f"#### 🔴 Critical ({len(critical_logs)}건)\n"
+            if critical_logs:
+                for l in critical_logs: result_text += f"- `{l}`\n"
+            else:
+                result_text += "- ✅ 발견되지 않음\n"
+                
+            # 2. Warning
+            result_text += f"\n#### 🟡 Warning ({len(warning_logs)}건)\n"
+            if warning_logs:
+                for l in warning_logs: result_text += f"- `{l}`\n"
+            else:
+                result_text += "- ✅ 발견되지 않음\n"
+            
+            # 3. Info (너무 많으면 100개까지만 표시하고 생략)
+            result_text += f"\n#### 🔵 Info / Others ({len(info_logs)}건)\n"
+            if info_logs:
+                count = 0
+                for l in info_logs:
+                    if count < 100: # 100줄까지만 보여줌 (속도 위해)
+                        result_text += f"- `{l}`\n"
+                    count += 1
+                if count > 100:
+                    result_text += f"\n... (총 {count}건 중 나머지 {count-100}건은 생략됨)"
+            else:
+                result_text += "- ✅ 발견되지 않음\n"
 
-                [입력 로그]
-                {final_log[:150000]}
-                """
-                # AI 모델의 Context Window를 활용해 최대 15만 자까지 처리
-
-                res = get_gemini_response(prompt, API_KEY_LOG, 'log')
-                st.session_state['res_class'] = res
-                st.session_state['log_buf'] = final_log
+            # 결과 저장
+            st.session_state['res_class'] = result_text
+            st.session_state['log_buf'] = final_log
+            
         else:
-            st.warning("로그를 입력해주세요.")
+            st.warning("로그를 입력하세요.")
 
-    # 결과 출력 및 다운로드
+    # 결과 표시 및 다운로드
     if 'res_class' in st.session_state:
         st.markdown("---")
         st.markdown(st.session_state['res_class'])
@@ -149,17 +180,17 @@ with tab0:
         st.download_button(
             label="📥 결과 텍스트로 저장",
             data=st.session_state['res_class'],
-            file_name="Log_Classification.txt",
+            file_name="Log_Classification_Result.txt",
             mime="text/plain",
             key="down_0"
         )
         
         if st.button("📝 정밀 분석 탭으로 복사"):
             st.session_state['log_transfer'] = st.session_state.get('log_buf', "")
-            st.success("복사 완료!")
+            st.success("복사 완료! 옆 탭으로 이동하세요.")
 
 # ========================================================
-# [TAB 1] 정밀 분석
+# [TAB 1] 정밀 분석 (여기는 AI 유지)
 # ========================================================
 with tab1:
     st.header("🕵️‍♀️ 심층 분석 (RCA)")
@@ -197,7 +228,7 @@ with tab1:
         )
 
 # ========================================================
-# [TAB 2] 스펙 조회
+# [TAB 2] 스펙 조회 (AI 유지)
 # ========================================================
 with tab2:
     st.header("스펙 조회")
@@ -226,7 +257,7 @@ with tab2:
         )
 
 # ========================================================
-# [TAB 3] OS 추천
+# [TAB 3] OS 추천 (AI 유지)
 # ========================================================
 with tab3:
     st.header("OS 추천")
