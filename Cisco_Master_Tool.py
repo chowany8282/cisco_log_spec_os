@@ -2,7 +2,7 @@ import streamlit as st
 import google.generativeai as genai
 import datetime
 from collections import Counter
-import re  # [핵심] 날짜/시간 제거를 위한 정규표현식 도구
+import re  # [핵심] 날짜/시간 제거를 위한 정규표현식
 
 # ========================================================
 # 🎨 페이지 기본 설정
@@ -69,19 +69,19 @@ def get_gemini_response(prompt, key, prefix):
 # ========================================================
 st.title("🛡️ Cisco Technical AI Dashboard")
 
-tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 분류 (스마트 중복제거)", "📊 정밀 분석", "🔍 스펙 조회", "💿 OS 추천"])
+tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 통합 분류", "📊 정밀 분석", "🔍 스펙 조회", "💿 OS 추천"])
 
 # ========================================================
-# [TAB 0] 로그 분류 (시간 제거 후 중복 합치기)
+# [TAB 0] 로그 분류 (등급 통합 + 중복 제거)
 # ========================================================
 with tab0:
-    st.header("⚡ 핵심 장애 로그 분류 (시간 제외 중복 합침)")
-    st.caption("시간이 달라도 내용이 같으면 하나로 합칩니다. **(Info 로그 제외)**")
+    st.header("⚡ 장애/점검 로그 통합 리포트")
+    st.caption("Critical/Warning 구분 없이, **조치가 필요한 모든 로그**를 한 번에 보여줍니다.")
     
     with st.form("upload_form", clear_on_submit=False):
         uploaded_file = st.file_uploader("📂 로그 파일 선택 (.txt, .log)", type=['txt', 'log'])
         raw_log_input = st.text_area("📝 또는 로그 붙여넣기:", height=200, key="raw_log_area")
-        submitted = st.form_submit_button("🚀 분류 실행")
+        submitted = st.form_submit_button("🚀 분석 실행")
 
     st.button("🗑️ 지우기", on_click=clear_log_input, key="clr_0")
 
@@ -100,77 +100,67 @@ with tab0:
 
         if final_log:
             # ------------------------------------------------
-            # [SMART LOGIC] 시간 자르고 메시지만 추출
+            # [SIMPLE LOGIC] 통합 이슈 카운터
             # ------------------------------------------------
-            crit_counter = Counter()
-            warn_counter = Counter()
+            issue_counter = Counter() # 등급 구분 없이 하나로 통합
             
             lines = final_log.splitlines()
             
-            # 무시할 키워드
-            ignore_keywords = ["transceiver absent", "administratively down", "mgmt0", "default policer", "removed", "inserted", "vty", "last reset", "connection timed out"]
+            # 1. 무시할 키워드 (False Alarm - 정상 로그)
+            ignore_keywords = [
+                "transceiver absent", "administratively down", "mgmt0", 
+                "default policer", "removed", "inserted", "vty", 
+                "last reset", "connection timed out", "changed state to up",
+                "link-keepalive", "dummy range"
+            ]
             
-            # 핵심 키워드
-            crit_keywords = ["-0-", "-1-", "-2-", "traceback", "crash", "reload", "stuck", "panic"]
-            warn_keywords = ["-3-", "-4-", "error", "warning", "threshold", "exceeded", "buffer", "tahusd", "fail", "collision", "duplex mismatch"]
+            # 2. 이슈 키워드 (Critical + Warning 모두 포함)
+            # -0- ~ -4- 까지 모두 잡고, 주요 장애 키워드 포함
+            issue_keywords = [
+                "-0-", "-1-", "-2-", "-3-", "-4-", 
+                "traceback", "crash", "reload", "stuck", "panic", 
+                "error", "warning", "threshold", "exceeded", "buffer", 
+                "tahusd", "fail", "collision", "duplex mismatch", "down"
+            ]
             
             for line in lines:
                 line_strip = line.strip()
                 if not line_strip: continue
                 line_lower = line_strip.lower() 
                 
-                # 0. 예외 처리
+                # 예외 처리 (무시할 것들)
                 if any(x in line_lower for x in ignore_keywords):
                     continue 
 
-                # 1. 메시지 정제 (Timestamp 제거)
-                # Cisco 로그는 보통 "%FACILITY..." 로 시작하는 부분이 진짜 메시지입니다.
-                # '%' 문자가 있으면 그 뒤부터 가져오고, 없으면 통째로 씁니다.
+                # 메시지 정제 (Timestamp 제거)
                 if "%" in line_strip:
-                    # % 문자 위치 찾기
                     msg_start = line_strip.find("%")
-                    # 날짜/시간 잘라내고 진짜 메시지만 남김 (예: %ETHPORT-5-IF_DOWN...)
                     clean_msg = line_strip[msg_start:]
                 else:
-                    # %가 없는 로그는 그냥 통째로 씁니다.
                     clean_msg = line_strip
 
-                # 2. Critical 분류
-                if any(x in clean_msg.lower() for x in crit_keywords):
-                    crit_counter[clean_msg] += 1
+                # 이슈 키워드가 있으면 카운팅
+                if any(k in clean_msg.lower() for k in issue_keywords):
+                    issue_counter[clean_msg] += 1
                 
-                # 3. Warning 분류
-                elif any(x in clean_msg.lower() for x in warn_keywords):
-                    warn_counter[clean_msg] += 1
-                
-                # Info는 무시 (속도 및 가독성)
-
             # ------------------------------------------------
-            # [결과 출력]
+            # [결과 출력] 통합 리포트
             # ------------------------------------------------
-            report_lines = [f"### 📊 핵심 로그 분석 결과 (총 {len(lines)}줄 중 중복 제거됨)"]
             
-            # Critical
-            report_lines.append(f"\n#### 🔴 Critical ({sum(crit_counter.values())}회)")
-            if crit_counter:
-                for log_msg, count in crit_counter.most_common():
+            total_issues = sum(issue_counter.values())
+            
+            if total_issues > 0:
+                report_lines = [f"### 🚨 총 {total_issues}건의 이슈가 발견되었습니다."]
+                report_lines.append(f"> **중복 제거됨 (시간 정보 제외)**\n")
+                
+                # 많이 발생한 순서대로 출력
+                for log_msg, count in issue_counter.most_common():
                     if count > 1:
-                        report_lines.append(f"- `{log_msg}` **(x {count}건)**")
+                        report_lines.append(f"- 🔴 `{log_msg}` **(x {count}건)**")
                     else:
-                        report_lines.append(f"- `{log_msg}`")
+                        report_lines.append(f"- 🔴 `{log_msg}`")
             else:
-                report_lines.append("- ✅ 발견되지 않음 (Clean)")
-
-            # Warning
-            report_lines.append(f"\n#### 🟡 Warning ({sum(warn_counter.values())}회)")
-            if warn_counter:
-                for log_msg, count in warn_counter.most_common():
-                    if count > 1:
-                        report_lines.append(f"- `{log_msg}` **(x {count}건)**")
-                    else:
-                        report_lines.append(f"- `{log_msg}`")
-            else:
-                report_lines.append("- ✅ 발견되지 않음")
+                report_lines = ["### ✅ 특이사항 없음 (Clean)", "장애나 경고 수준의 로그가 발견되지 않았습니다."]
             
             final_report = "\n".join(report_lines)
 
@@ -187,9 +177,9 @@ with tab0:
         st.markdown(st.session_state['res_class'])
         
         st.download_button(
-            label="📥 요약 결과 저장 (txt)",
+            label="📥 결과 리포트 저장 (txt)",
             data=st.session_state['res_class'],
-            file_name="Log_Summary_Dedup.txt",
+            file_name="Log_Issue_Report.txt",
             mime="text/plain",
             key="down_0"
         )
@@ -210,7 +200,7 @@ with tab1:
     with col1:
         if st.button("🚀 분석 실행"):
             if log_in:
-                with st.spinner("분석 중..."):
+                with st.spinner("Gemini AI가 정밀 분석 중..."):
                     prompt = f"""
                     Cisco Tier 3 엔지니어 관점에서 로그 분석:
                     1. 🎯 근본 원인 (Root Cause)
