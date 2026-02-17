@@ -19,11 +19,11 @@ try:
     API_KEY_SPEC = st.secrets["API_KEY_SPEC"]
     API_KEY_OS = st.secrets["API_KEY_OS"]
 except:
-    st.error("🚨 API 키를 찾을 수 없습니다. secrets.toml을 확인하세요.")
+    st.error("🚨 API 키를 찾을 수 없습니다.")
     st.stop()
 
 # ========================================================
-# 💾 사용량 카운터 & 초기화
+# 💾 사용량 카운터
 # ========================================================
 usage_keys = ["log_lite", "log_flash", "log_pro", "spec_lite", "spec_flash", "spec_pro", "os_lite", "os_flash", "os_pro"]
 
@@ -33,7 +33,7 @@ def get_shared_usage_stats():
 
 shared_data = get_shared_usage_stats()
 
-# 입력창 초기화 함수들
+# 입력창 초기화 함수
 def clear_log_input(): st.session_state["raw_log_area"] = ""
 def clear_analysis_input(): st.session_state["log_analysis_area"] = ""
 def clear_spec_input(): st.session_state["input_spec"] = ""
@@ -68,18 +68,18 @@ def get_gemini_response(prompt, key, prefix):
 # ========================================================
 st.title("🛡️ Cisco Technical AI Dashboard")
 
-tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 분류 (New)", "📊 정밀 분석", "🔍 스펙 조회", "💿 OS 추천"])
+tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 분류 (Simple)", "📊 정밀 분석", "🔍 스펙 조회", "💿 OS 추천"])
 
 # ========================================================
-# [TAB 0] 로그 분류기 (완전히 새로 만든 버전)
+# [TAB 0] 로그 분류 (단순 분류 모드)
 # ========================================================
 with tab0:
-    st.header("⚡ 로그 패턴 자동 분류기")
-    st.caption("중복되는 로그를 하나로 묶고, 심각도 별로 표(Table)로 정리합니다.")
+    st.header("⚡ 로그 단순 분류")
+    st.caption("복잡한 요약 없이, 로그를 심각도별로 나누어 보여줍니다.")
     
-    # 입력 폼
+    # 1. 입력 폼
     with st.form("upload_form", clear_on_submit=False):
-        uploaded_file = st.file_uploader("📂 로그 파일 (.log, .txt)", type=['txt', 'log'])
+        uploaded_file = st.file_uploader("📂 로그 파일 (.txt, .log)", type=['txt', 'log'])
         raw_log_input = st.text_area("📝 또는 로그 붙여넣기:", height=200, key="raw_log_area")
         submitted = st.form_submit_button("🚀 분류 실행")
 
@@ -87,13 +87,12 @@ with tab0:
 
     if submitted:
         final_log = ""
-        # 1. 파일 읽기
         if uploaded_file:
             try:
                 bytes_data = uploaded_file.getvalue()
                 try: final_log = bytes_data.decode("utf-8")
                 except: final_log = bytes_data.decode("cp949", errors="ignore")
-                st.success(f"파일 로드 성공: {uploaded_file.name}")
+                st.success(f"파일 로드: {uploaded_file.name}")
             except Exception as e:
                 st.error(f"오류: {e}")
         elif raw_log_input:
@@ -101,26 +100,32 @@ with tab0:
 
         # 2. 분석 실행
         if final_log:
-            with st.spinner("로그 패턴 분석 및 중복 제거 중..."):
-                # [🔥 강력해진 프롬프트] 표 형식 강제, 중복 카운트 지시
+            with st.spinner("단순 분류 중..."):
+                # [🔥 프롬프트 변경] 요약 금지, 원본 유지, 단순 나열
                 prompt = f"""
-                당신은 Cisco 로그 분석기입니다. 입력된 로그를 파싱하여 아래 규칙대로 정리하세요.
-
-                [분석 규칙]
-                1. **중복 제거:** 동일한 로그 메시지는 하나로 묶고 '발생 횟수(Count)'를 세세요.
-                2. **심각도 분류 (Severity Parsing):**
-                   - 로그 내의 %FACILITY-0, -1, -2 -> 🔴 Critical
-                   - 로그 내의 %FACILITY-3, -4 -> 🟡 Warning
-                   - 로그 내의 %FACILITY-5, -6, -7 -> 🔵 Info
-                3. **불필요 제거:** 단순한 `Configured from vty` 같은 로그는 제외하세요.
-
+                당신은 Cisco 로그 분류기입니다. 
+                입력된 로그를 심각도(Severity)에 따라 3가지 그룹으로 나누어 **원본 그대로** 나열하세요.
+                
+                [규칙]
+                1. **요약하거나 말을 지어내지 마세요.**
+                2. 로그 메시지 원본을 그대로 보여주세요.
+                3. 중복되는 로그가 연속으로 나오면 (x N회)로 표시하세요.
+                
+                [분류 기준]
+                - 🔴 **Critical:** Severity 0(Emergencies), 1(Alerts), 2(Critical) / Down, Fail, Crash
+                - 🟡 **Warning:** Severity 3(Errors), 4(Warnings) / Threshold, SFP Warning
+                - 🔵 **Info:** Severity 5, 6, 7 / Up, Config, Login
+                
                 [출력 형식]
-                반드시 **Markdown 표(Table)** 형식으로만 출력하세요. 설명글은 최소화하세요.
-
-                | 심각도 | 발생 횟수 | 로그 메시지 패턴 (요약) | 원인 및 조치 권고 |
-                |---|---|---|---|
-                | 🔴 Critical | 5 | %MODULE-2-FAILED: Module 1 failed | 모듈 하드웨어 불량 의심. `show mod` 확인 필요 |
-                | 🟡 Warning | 12 | %ETHPORT-5-IF_DOWN_LINK_FAILURE | 케이블/SFP 이슈 또는 상대방 장비 Down 점검 |
+                ### 🔴 Critical (심각)
+                - `로그 원본 1`
+                - `로그 원본 2`
+                
+                ### 🟡 Warning (경고)
+                - `로그 원본 3`
+                
+                ### 🔵 Info (정보)
+                - `로그 원본 4`
 
                 [입력 로그]
                 {final_log[:40000]}
@@ -128,17 +133,17 @@ with tab0:
                 
                 res = get_gemini_response(prompt, API_KEY_LOG, 'log')
                 
-                # 결과 저장
                 st.session_state['res_class'] = res
                 st.session_state['log_buf'] = final_log
         else:
-            st.warning("로그를 입력해주세요.")
+            st.warning("로그를 입력하세요.")
 
-    # 결과 표시 및 다운로드
+    # 결과 표시
     if 'res_class' in st.session_state:
         st.markdown("---")
-        st.markdown(st.session_state['res_class'], unsafe_allow_html=True)
+        st.markdown(st.session_state['res_class'])
         
+        # 다운로드 버튼
         st.download_button(
             label="📥 결과 텍스트로 저장",
             data=st.session_state['res_class'],
@@ -147,15 +152,16 @@ with tab0:
             key="down_0"
         )
         
+        # 복사 버튼
         if st.button("📝 정밀 분석 탭으로 복사"):
             st.session_state['log_transfer'] = st.session_state.get('log_buf', "")
-            st.success("복사 완료! 옆 탭으로 이동하세요.")
+            st.success("복사 완료!")
 
 # ========================================================
-# [TAB 1] 정밀 분석 (RCA)
+# [TAB 1] 정밀 분석
 # ========================================================
 with tab1:
-    st.header("🕵️‍♀️ 심층 분석 (Root Cause)")
+    st.header("🕵️‍♀️ 심층 분석 (RCA)")
     val = st.session_state.get('log_transfer', "")
     log_in = st.text_area("로그 입력:", value=val, height=200, key="log_analysis_area")
     
@@ -165,11 +171,10 @@ with tab1:
             if log_in:
                 with st.spinner("분석 중..."):
                     prompt = f"""
-                    Cisco Tier 3 엔지니어 관점에서 다음 로그의 **근본 원인(Root Cause)**을 분석하세요.
-                    **출력 형식:**
-                    1. 🎯 근본 원인
-                    2. 📉 영향도
-                    3. 🛠️ 해결 방법 (구체적 CLI 명령어 포함)
+                    Cisco Tier 3 엔지니어 관점에서 로그 분석:
+                    1. 🎯 근본 원인 (Root Cause)
+                    2. 📉 영향도 (Impact)
+                    3. 🛠️ 해결 방법 (CLI 명령어 포함)
                     
                     [로그] {log_in[:30000]}
                     """
@@ -181,7 +186,7 @@ with tab1:
         st.button("🗑️ 지우기", on_click=clear_analysis_input, key="clr_1")
 
     if 'res_anal' in st.session_state:
-        st.markdown(st.session_state['res_anal'], unsafe_allow_html=True)
+        st.markdown(st.session_state['res_anal'])
         st.download_button(
             label="📥 결과 텍스트로 저장",
             data=st.session_state['res_anal'],
@@ -202,7 +207,7 @@ with tab2:
         if st.button("조회 실행"):
             if m_in:
                 with st.spinner("검색 중..."):
-                    res = get_gemini_response(f"{m_in} 하드웨어 스펙 표로 정리 (Port, Power, CPU 등)", API_KEY_SPEC, 'spec')
+                    res = get_gemini_response(f"{m_in} 하드웨어 스펙 표로 정리", API_KEY_SPEC, 'spec')
                     st.session_state['res_spec'] = res
             else:
                 st.warning("모델명을 입력하세요.")
