@@ -24,16 +24,285 @@ except Exception as e:
     st.stop()
 
 # ========================================================
-# 💾 [수정됨] 서버 메모리를 활용한 영구 카운터
+# 💾 [수정됨] 사용량 카운터 설정 (NameError 해결)
 # ========================================================
-# @st.cache_resource를 쓰면 새로고침해도 데이터가 날아가지 않습니다.
+
+# 1. [중요] 카운트할 항목들의 이름 목록을 먼저 정의합니다.
+usage_keys = [
+    "log_lite", "log_flash", "log_pro",
+    "spec_lite", "spec_flash", "spec_pro",
+    "os_lite", "os_flash", "os_pro",
+    "class_lite", "class_flash", "class_pro"
+]
+
+# 2. 서버 메모리에 데이터 저장 (새로고침해도 유지됨)
 @st.cache_resource
 def get_shared_usage_stats():
-    # 이 함수는 서버가 켜져있는 동안 딱 한 번만 실행되어 저장소를 만듭니다.
+    # 초기값 0으로 설정
+    stats_init = {key: 0 for key in usage_keys}
     return {
         'date': str(datetime.date.today()),
-        'stats': {
-            "log_lite": 0, "log_flash": 0, "log_pro": 0,
+        'stats': stats_init
+    }
+
+# 3. 데이터 가져오기 및 날짜 변경 체크
+shared_data = get_shared_usage_stats()
+today_str = str(datetime.date.today())
+
+# 날짜가 바뀌었으면 카운터 0으로 리셋
+if shared_data['date'] != today_str:
+    shared_data['date'] = today_str
+    for key in usage_keys:  # 이제 에러 안 남!
+        shared_data['stats'][key] = 0
+
+# ========================================================
+# 🤖 사이드바 설정 (계층형 디자인)
+# ========================================================
+with st.sidebar:
+    st.header("🤖 엔진 설정")
+    
+    # 1. 모델 선택
+    selected_model_name = st.selectbox(
+        "사용할 AI 모델을 선택하세요:",
+        ("Gemini 2.5 Flash Lite (가성비)", "Gemini 2.5 Flash (표준)", "Gemini 3 Flash Preview (최신)")
+    )
+    
+    # 2. 모델 매핑
+    if "Lite" in selected_model_name: 
+        MODEL_ID = "models/gemini-2.5-flash-lite"
+        current_model_type = "lite"
+    elif "Gemini 3" in selected_model_name: 
+        MODEL_ID = "models/gemini-3-flash-preview"
+        current_model_type = "pro"
+    else: 
+        MODEL_ID = "models/gemini-2.5-flash"
+        current_model_type = "flash"
+
+    st.success(f"선택됨: {selected_model_name}")
+    st.markdown("---")
+
+    # 3. 사용량 현황판
+    st.markdown("### 📊 일일 누적 사용량")
+    st.caption(f"📅 {today_str} 기준 (자정 리셋)")
+
+    count_style = """
+    <style>
+        .usage-box { margin-bottom: 15px; padding: 10px; background-color: #f0f2f6; border-radius: 5px; }
+        .usage-title { font-weight: bold; font-size: 14px; margin-bottom: 5px; color: #31333F; }
+        .usage-item { font-size: 13px; color: #555; display: flex; justify-content: space-between; }
+        .usage-num { font-weight: bold; color: #0068c9; }
+    </style>
+    """
+    st.markdown(count_style, unsafe_allow_html=True)
+
+    def draw_usage(title, prefix):
+        lite = shared_data['stats'][f"{prefix}_lite"]
+        flash = shared_data['stats'][f"{prefix}_flash"]
+        pro = shared_data['stats'][f"{prefix}_pro"]
+        
+        st.markdown(f"""
+        <div class="usage-box">
+            <div class="usage-title">{title}</div>
+            <div class="usage-item"><span>🔹 Lite</span> <span class="usage-num">{lite}회</span></div>
+            <div class="usage-item"><span>⚡ Flash</span> <span class="usage-num">{flash}회</span></div>
+            <div class="usage-item"><span>🚀 Pro</span> <span class="usage-num">{pro}회</span></div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    draw_usage("🚨 로그 분류 (Classify)", "class")
+    draw_usage("📊 로그 분석 (Log Key)", "log")
+    draw_usage("🔍 스펙 조회 (Spec Key)", "spec")
+    draw_usage("💿 OS 추천 (OS Key)", "os")
+
+    st.markdown("---")
+    st.markdown("Created by Wan Hee Cho")
+
+# ========================================================
+# 🤖 AI 연결 함수
+# ========================================================
+def get_gemini_response(prompt, current_api_key, func_prefix):
+    try:
+        genai.configure(api_key=current_api_key)
+        model = genai.GenerativeModel(MODEL_ID)
+        response = model.generate_content(prompt)
+        
+        # 공유 데이터 카운트 증가
+        count_key = f"{func_prefix}_{current_model_type}"
+        shared_data['stats'][count_key] += 1
+        
+        return response.text
+    except Exception as e:
+        return f"System Error: {str(e)}"
+
+# ========================================================
+# 🖥️ 메인 화면 구성
+# ========================================================
+st.title("🛡️ Cisco Technical AI Dashboard")
+
+# 탭 순서 정의
+tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 분류 (New)", "📊 로그 정밀 분석", "🔍 하드웨어 스펙", "💿 OS 추천"])
+
+# ========================================================
+# [TAB 0] 로그 분류기 (신규 기능)
+# ========================================================
+with tab0:
+    st.header("⚡ 대량 로그 자동 분류")
+    st.caption("복잡한 로그를 붙여넣으면 심각도(Critical/Warning/Info) 별로 분류해 드립니다.")
+    
+    raw_log_input = st.text_area("분류할 전체 로그를 입력하세요:", height=200, key="raw_log_area")
+    
+    if st.button("로그 분류 실행", key="btn_classify"):
+        if not raw_log_input:
+            st.warning("로그를 입력해주세요!")
+        else:
+            with st.spinner("로그 패턴 분석 및 심각도 분류 중..."):
+                prompt = f"""
+                당신은 시스코 로그 분석 전문가입니다. 
+                아래 로그들을 분석하여 심각도(Critical, Warning, Info) 별로 분류하고 요약해주세요.
+                
+                [입력 로그]
+                {raw_log_input}
+
+                [출력 형식]
+                각 로그 그룹에 대해 다음과 같이 출력하세요. (마크다운 형식)
+                
+                ### 🔴 Critical (심각한 장애)
+                - (로그 내용 요약)
+                - (로그 원본 일부)
+                
+                ### 🟡 Warning (경고)
+                - (로그 내용 요약)
+                
+                ### 🔵 Info (일반 정보)
+                - (로그 내용 요약)
+
+                마지막에 **[분석 제안]** 섹션을 만들어서 정밀 분석이 필요한 핵심 로그만 따로 추출해 주세요.
+                """
+                # 로그 키 공유 사용
+                classified_result = get_gemini_response(prompt, API_KEY_LOG, 'class')
+                st.session_state['classified_result'] = classified_result 
+                
+    # 분류 결과 표시 및 이동 기능
+    if 'classified_result' in st.session_state:
+        st.markdown("---")
+        st.subheader("📋 분류 결과")
+        st.markdown(st.session_state['classified_result'])
+        
+        st.info("💡 위 결과 중 정밀 분석하고 싶은 로그를 복사하여 '📊 로그 정밀 분석' 탭에서 분석하세요.")
+        
+        # 버튼 클릭 시 로그 분석 탭으로 값 전달
+        if st.button("📝 원본 로그를 '로그 정밀 분석' 탭으로 복사하기"):
+             st.session_state['log_transfer'] = raw_log_input
+             st.success("복사되었습니다! 상단의 '📊 로그 정밀 분석' 탭을 눌러 이동하세요.")
+
+# ========================================================
+# [TAB 1] 로그 분석기 (연동 기능 추가)
+# ========================================================
+with tab1:
+    st.header("로그 분석 및 장애 진단")
+    
+    # 탭0에서 넘어온 데이터가 있으면 그걸 기본값으로 사용
+    default_log_value = st.session_state.get('log_transfer', "")
+    
+    log_input = st.text_area("분석할 로그를 입력하세요:", value=default_log_value, height=150, key="log_analysis_area")
+    
+    if st.button("로그 분석 실행", key="btn_log"):
+        if not log_input: st.warning("로그를 입력해주세요!")
+        else:
+            with st.spinner(f"AI가 로그를 분석 중입니다..."):
+                prompt = f"""
+                당신은 시스코 전문가입니다. 다음 로그를 분석하되, 반드시 아래 형식대로 답변하세요.
+                로그: {log_input}
+                답변 형식:
+                [PART_1](발생 원인)
+                [PART_2](네트워크 영향)
+                [PART_3](조치 방법)
+                """
+                result = get_gemini_response(prompt, API_KEY_LOG, 'log')
+                try:
+                    p1 = result.split("[PART_1]")[1].split("[PART_2]")[0].strip()
+                    p2 = result.split("[PART_2]")[1].split("[PART_3]")[0].strip()
+                    p3 = result.split("[PART_3]")[1].strip()
+                    st.subheader("🔴 발생 원인"); st.error(p1)
+                    st.subheader("🟡 네트워크 영향"); st.warning(p2)
+                    st.subheader("🟢 권장 조치"); st.success(p3)
+                except: st.markdown(result)
+
+# ========================================================
+# [TAB 2] 스펙 조회기
+# ========================================================
+with tab2:
+    st.header("장비 하드웨어 스펙 조회")
+    model_input = st.text_input("장비 모델명 (예: C9300-48P)", key="input_spec")
+    if st.button("스펙 조회 실행", key="btn_spec"):
+        if not model_input: st.warning("모델명을 입력해주세요!")
+        else:
+            with st.spinner("데이터시트 검색 중..."):
+                prompt = f"""
+                [대상 모델]: {model_input}
+                위 모델의 하드웨어 스펙을 표(Table)로 요약해주세요.
+                항목: Fixed Ports, Switching Capacity, Forwarding Rate, CPU/Memory, Power.
+                주요 특징 3가지 포함. 한국어 답변.
+                """
+                st.markdown(get_gemini_response(prompt, API_KEY_SPEC, 'spec'))
+
+# ========================================================
+# [TAB 3] OS 추천기
+# ========================================================
+with tab3:
+    st.header("OS 추천 및 안정성 진단")
+    st.caption("💡 장비 계열을 먼저 선택하면 더 정확한 추천을 받을 수 있습니다.")
+
+    device_family = st.radio(
+        "장비 계열 선택 (Device Family)",
+        ("Catalyst (IOS-XE)", "Nexus (NX-OS)"),
+        horizontal=True
+    )
+    
+    col1, col2 = st.columns(2)
+    with col1: os_model = st.text_input("장비 모델명", placeholder="예: C9300-48P or N9K-C93180YC-FX", key="os_model")
+    with col2: os_ver = st.text_input("현재 버전 (선택)", placeholder="예: 17.09.04a or 10.2(3)", key="os_ver")
+        
+    if st.button("OS 분석 실행", key="btn_os"):
+        if not os_model: st.warning("장비 모델명은 필수입니다!")
+        else:
+            with st.spinner(f"{device_family} 데이터베이스 검색 중..."):
+                if "Nexus" in device_family:
+                    family_prompt = "당신은 Cisco Nexus(NX-OS) 전문가입니다. 반드시 **NX-OS 버전**만 추천하세요. IOS-XE 버전을 추천하면 절대 안 됩니다."
+                    search_keyword = "Nexus"
+                else:
+                    family_prompt = "당신은 Cisco Catalyst(IOS-XE) 전문가입니다. 반드시 **IOS-XE 버전**만 추천하세요. NX-OS 버전을 추천하면 절대 안 됩니다."
+                    search_keyword = "Catalyst"
+
+                current_ver_query = f"Cisco {search_keyword} {os_model} {os_ver if os_ver else ''} Last Date of Support"
+                current_ver_url = f"https://www.google.com/search?q={current_ver_query.replace(' ', '+')}"
+
+                prompt = f"""
+                {family_prompt}
+                다음 장비의 **OS 소프트웨어**를 분석하여 **HTML Table** 코드로 출력하세요.
+
+                [필수 지침]
+                1. 오직 HTML 코드만 출력하세요. (마크다운 X)
+                2. 링크는 <a href='URL' target='_blank'> 형식을 사용하세요.
+                3. 테이블 스타일: <table border='1' style='width:100%; border-collapse:collapse; text-align:left;'>
+
+                [분석 내용]
+                - MD 및 Gold Star 버전 최우선 추천.
+                - 안정성 등급 별점(⭐⭐⭐⭐⭐) 표시.
+
+                [대상 장비]: {os_model} ({device_family})
+                [현재 OS 버전]: {os_ver if os_ver else '정보 없음'}
+                [검증 링크]: {current_ver_url}
+
+                <h3>1. 현재 버전 상태</h3>
+                <table>...</table>
+                <br>
+                <h3>2. 추천 OS (Recommended Releases)</h3>
+                <table>...</table>
+                """
+                
+                response_html = get_gemini_response(prompt, API_KEY_OS, 'os')
+                st.markdown(response_html, unsafe_allow_html=True)
             "spec_lite": 0, "spec_flash": 0, "spec_pro": 0,
             "os_lite": 0, "os_flash": 0, "os_pro": 0,
             "class_lite": 0, "class_flash": 0, "class_pro": 0 # 분류 기능 추가
@@ -509,4 +778,5 @@ with tab3:
                 
                 response_html = get_gemini_response(prompt, API_KEY_OS, 'os')
                 st.markdown(response_html, unsafe_allow_html=True)
+
 
