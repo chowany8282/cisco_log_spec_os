@@ -2,7 +2,7 @@ import streamlit as st
 import google.generativeai as genai
 import datetime
 from collections import Counter
-import re  # [핵심] 날짜/시간 제거용
+import re
 
 # ========================================================
 # 🎨 페이지 기본 설정
@@ -25,23 +25,33 @@ except:
     st.stop()
 
 # ========================================================
-# 💾 사용량 카운터
+# 💾 사용량 카운터 (API Counter 복구)
 # ========================================================
-usage_keys = ["log_lite", "log_flash", "log_pro", "spec_lite", "spec_flash", "spec_pro", "os_lite", "os_flash", "os_pro"]
-
+# 세션이 초기화되어도 값 유지 (캐시 사용)
 @st.cache_resource
 def get_shared_usage_stats():
-    return {'date': str(datetime.date.today()), 'stats': {k: 0 for k in usage_keys}}
+    # 오늘 날짜와 카운터 0으로 초기화
+    return {'date': str(datetime.date.today()), 'stats': {
+        "log_lite": 0, "log_flash": 0, "log_pro": 0,
+        "spec_lite": 0, "spec_flash": 0, "spec_pro": 0,
+        "os_lite": 0, "os_flash": 0, "os_pro": 0
+    }}
 
 shared_data = get_shared_usage_stats()
 
+# 날짜 바뀌면 초기화 로직
+if shared_data['date'] != str(datetime.date.today()):
+    shared_data['date'] = str(datetime.date.today())
+    for k in shared_data['stats']: shared_data['stats'][k] = 0
+
+# 입력창 지우기 함수들
 def clear_log_input(): st.session_state["raw_log_area"] = ""
 def clear_analysis_input(): st.session_state["log_analysis_area"] = ""
 def clear_spec_input(): st.session_state["input_spec"] = ""
 def clear_os_input(): st.session_state["os_model"] = ""; st.session_state["os_ver"] = ""
 
 # ========================================================
-# 🤖 사이드바 설정
+# 🤖 사이드바 설정 (카운터 UI 복구)
 # ========================================================
 with st.sidebar:
     st.header("🤖 엔진 설정")
@@ -52,6 +62,46 @@ with st.sidebar:
     else: MODEL_ID, m_type = "models/gemini-2.5-flash", "flash"
     
     st.success(f"선택: {model_opt}")
+    
+    st.markdown("---")
+    st.subheader("📊 API 사용량 통계")
+    st.caption(f"📅 {shared_data['date']} 기준")
+
+    # 카운터 표시 디자인
+    stats = shared_data['stats']
+    
+    # CSS로 박스 디자인
+    st.markdown("""
+    <style>
+    .stat-box {
+        background-color: #f0f2f6;
+        padding: 10px;
+        border-radius: 5px;
+        margin-bottom: 5px;
+        font-size: 13px;
+    }
+    .stat-row { display: flex; justify-content: space-between; }
+    .stat-val { font-weight: bold; color: #0068c9; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    def draw_stat(title, prefix):
+        lite = stats[f"{prefix}_lite"]
+        flash = stats[f"{prefix}_flash"]
+        pro = stats[f"{prefix}_pro"]
+        st.markdown(f"""
+        <div class="stat-box">
+            <strong>{title}</strong>
+            <div class="stat-row">Lite: <span class="stat-val">{lite}</span></div>
+            <div class="stat-row">Flash: <span class="stat-val">{flash}</span></div>
+            <div class="stat-row">Pro: <span class="stat-val">{pro}</span></div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    draw_stat("🚨 정밀 분석 (RCA)", "log")
+    draw_stat("🔍 스펙 조회", "spec")
+    draw_stat("💿 OS 추천", "os")
+    st.caption("* '로그 분류' 탭은 AI를 쓰지 않아 카운트되지 않습니다.")
 
 # AI 호출 함수
 def get_gemini_response(prompt, key, prefix):
@@ -59,6 +109,7 @@ def get_gemini_response(prompt, key, prefix):
         genai.configure(api_key=key)
         model = genai.GenerativeModel(MODEL_ID)
         response = model.generate_content(prompt)
+        # [카운터 증가 로직]
         shared_data['stats'][f"{prefix}_{m_type}"] += 1
         return response.text
     except Exception as e:
@@ -72,11 +123,11 @@ st.title("🛡️ Cisco Technical AI Dashboard")
 tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 통합 분류", "📊 정밀 분석", "🔍 스펙 조회", "💿 OS 추천"])
 
 # ========================================================
-# [TAB 0] 로그 분류 (정상 로그 강력 필터링)
+# [TAB 0] 로그 분류 (Up/Down 필터링 + 복사 버튼)
 # ========================================================
 with tab0:
-    st.header("⚡ 장애/점검 로그 통합 리포트")
-    st.caption("정상(Up/Recovered) 로그와 단순 알림을 제외하고, **진짜 문제(Issue)**만 보여줍니다.")
+    st.header("⚡ 장애 로그 필터링 (복사 가능)")
+    st.caption("정상 로그(Up/Down 포함)는 제외하고, 조치가 필요한 로그만 보여줍니다.")
     
     with st.form("upload_form", clear_on_submit=False):
         uploaded_file = st.file_uploader("📂 로그 파일 선택 (.txt, .log)", type=['txt', 'log'])
@@ -100,39 +151,30 @@ with tab0:
 
         if final_log:
             # ------------------------------------------------
-            # [LOGIC] 정상 로그 필터링 강화
+            # [LOGIC] 필터링 (Up/Down 제외 추가)
             # ------------------------------------------------
             issue_counter = Counter()
             lines = final_log.splitlines()
             
-            # [1] 무시할 키워드 리스트 (여기에 있는 단어가 포함되면 무조건 제외)
-            # 정상 상태, 복구, 단순 정보, 관리자가 끈 것 등을 모두 포함
+            # 1. 무시할 키워드 (Up/Down 추가됨)
             ignore_keywords = [
-                "transceiver absent",       # SFP 없음 (정상)
-                "administratively down",    # 관리자가 끈 것 (정상)
-                "mgmt0",                    # 관리 포트 이슈 (보통 무시)
-                "default policer",          # CoPP 기본 정책 (정보성)
-                "removed", "inserted",      # 모듈/SFP 탈착 (작업 중 발생)
-                "changed state to up",      # 인터페이스 살아남 (정상)
-                "link-keepalive",           # 키퍼라이브 (정상)
-                "vty", "console",           # 로그인 관련 (보안 이슈 아니면 무시)
-                "last reset",               # 리부팅 기록
-                "connection timed out",     # 터미널 끊김 (단순)
-                "authentication success",   # 로그인 성공
-                "dummy range",              # 넥서스 더미 메시지
-                "online", "ready",          # 장비 정상 상태 진입
-                "recovery", "recovered",    # 복구됨
-                "neighbor up",              # 네이버 맺음 (정상)
-                "copy complete"             # 복사 완료
+                "transceiver absent", "administratively down", "mgmt0", 
+                "default policer", "removed", "inserted", "vty", 
+                "last reset", "connection timed out", "changed state to up",
+                "link-keepalive", "dummy range", "online", "ready", 
+                "recovery", "recovered", "neighbor up", "copy complete",
+                # [추가됨] 인터페이스 Up/Down 로그 제외
+                "changed state to down", "link-3-updown", "lineproto-5-updown"
             ]
             
-            # [2] 이슈 키워드 (이게 있어야만 리포트에 포함)
+            # 2. 이슈 키워드
             issue_keywords = [
-                "-0-", "-1-", "-2-", "-3-", "-4-",   # 심각도 0~4
+                "-0-", "-1-", "-2-", "-3-", "-4-", 
                 "traceback", "crash", "reload", "stuck", "panic", 
                 "error", "warning", "threshold", "exceeded", "buffer", 
                 "tahusd", "fail", "collision", "duplex mismatch", 
-                "down", "authentication failed"
+                "authentication failed"
+                # "down" 키워드는 너무 흔해서 뺐습니다. (위에서 changed state to down을 걸렀으므로)
             ]
             
             for line in lines:
@@ -140,59 +182,64 @@ with tab0:
                 if not line_strip: continue
                 line_lower = line_strip.lower() 
                 
-                # 1. 무시할 키워드가 하나라도 있으면 -> 패스 (삭제)
+                # 예외 처리
                 if any(x in line_lower for x in ignore_keywords):
                     continue 
 
-                # 2. 타임스탬프 제거 (내용만 추출)
+                # 메시지 정제
                 if "%" in line_strip:
                     msg_start = line_strip.find("%")
                     clean_msg = line_strip[msg_start:]
                 else:
                     clean_msg = line_strip
 
-                # 3. 이슈 키워드가 포함되어 있어야만 -> 추가
-                # (그냥 잡다한 텍스트가 걸리는 것을 방지)
+                # 이슈 키워드 체크
                 if any(k in clean_msg.lower() for k in issue_keywords):
                     issue_counter[clean_msg] += 1
                 
             # ------------------------------------------------
-            # [결과 출력]
+            # [결과 출력] st.code()를 사용하여 복사 버튼 제공
             # ------------------------------------------------
             
             total_issues = sum(issue_counter.values())
             
             if total_issues > 0:
-                report_lines = [f"### 🚨 장애/점검 로그 리포트 (총 {total_issues}건)"]
-                report_lines.append(f"> **필터링 적용:** 정상 상태(Up), 단순 알림, 관리자 작업 로그 제외됨\n")
+                st.markdown(f"### 🚨 총 {total_issues}건의 이슈 발견 (Click to Copy)")
+                st.markdown("> 각 로그 우측 상단의 **📄 아이콘**을 누르면 복사됩니다.")
                 
                 for log_msg, count in issue_counter.most_common():
+                    # (x N건) 표시를 붙여서 출력
                     if count > 1:
-                        report_lines.append(f"- 🔴 `{log_msg}` **(x {count}건)**")
+                        display_text = f"{log_msg} (x {count}건)"
                     else:
-                        report_lines.append(f"- 🔴 `{log_msg}`")
-            else:
-                report_lines = [
-                    "### ✅ 발견된 장애 로그가 없습니다.",
-                    "모든 로그가 **정상(Info/Up/Recovered)**이거나 무시 목록에 포함되었습니다."
-                ]
-            
-            final_report = "\n".join(report_lines)
+                        display_text = log_msg
+                    
+                    # [핵심] st.code를 쓰면 복사 버튼이 자동으로 생김
+                    st.code(display_text, language="text")
+                    
+                # 파일 저장용 텍스트 생성
+                file_lines = []
+                for log_msg, count in issue_counter.most_common():
+                    file_lines.append(f"{log_msg} (x {count}건)" if count > 1 else log_msg)
+                
+                final_report_text = "\n".join(file_lines)
 
-            # 결과 저장
-            st.session_state['res_class'] = final_report
+            else:
+                st.success("✅ 필터링 결과, 특이사항(장애)이 없습니다.")
+                st.info("참고: Interface Up/Down 및 단순 알림 로그는 제외되었습니다.")
+                final_report_text = "No critical issues found."
+
+            # 결과 저장 (세션)
+            st.session_state['res_class'] = final_report_text
             st.session_state['log_buf'] = final_log
             
         else:
             st.warning("로그를 입력하세요.")
 
-    # 결과 표시 및 다운로드
-    if 'res_class' in st.session_state:
-        st.markdown("---")
-        st.markdown(st.session_state['res_class'])
-        
+    # 파일 다운로드 버튼 (결과가 있을 때만)
+    if 'res_class' in st.session_state and st.session_state['res_class'] != "No critical issues found.":
         st.download_button(
-            label="📥 리포트 저장 (txt)",
+            label="📥 결과 리포트 저장 (txt)",
             data=st.session_state['res_class'],
             file_name="Filtered_Issue_Report.txt",
             mime="text/plain",
