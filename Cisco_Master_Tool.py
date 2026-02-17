@@ -143,11 +143,11 @@ st.title("🛡️ Cisco Technical AI Dashboard")
 tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 선별 (AI Filter)", "📊 로그 정밀 분석", "🔍 하드웨어 스펙", "💿 OS 추천"])
 
 # ========================================================
-# [TAB 0] 로그 선별기 (중복 통합 강화)
+# [TAB 0] 로그 선별기
 # ========================================================
 with tab0:
     st.header("⚡ 스마트 로그 선별 (Smart Action)")
-    st.caption("중복 로그는 **하나로 통합**하고, **엔지니어가 '반드시 확인해야 할 이슈'**만 선별합니다.")
+    st.caption("단순 반복 로그는 버리고, **엔지니어가 '반드시 확인해야 할 이슈'**만 선별합니다.")
     
     uploaded_file = st.file_uploader("📂 로그 파일 업로드 (txt, log)", type=["txt", "log"])
     raw_log_input = st.text_area("📝 또는 여기에 로그를 직접 붙여넣으세요:", height=200, key="raw_log_area")
@@ -172,26 +172,24 @@ with tab0:
         if not final_log_content:
             st.warning("로그를 입력해주세요!")
         else:
-            with st.spinner("🤖 AI가 중복 로그를 압축하고 핵심 이슈만 선별 중..."):
+            with st.spinner("🤖 AI가 '가짜 경고'를 거르고 '진짜 위험'을 찾는 중..."):
                 prompt = f"""
                 당신은 Cisco TAC 최고 레벨 엔지니어입니다.
                 제공된 로그 중에서 **엔지니어가 반드시 확인하고 조치해야 하는 '실질적인 장애 로그'**만 선별하세요.
 
                 [AI 스마트 필터링 규칙]
-                1. **★중복 로그 강력 통합 (Dedup):** - 내용이 동일한 로그가 반복되면 (시간이 달라도) **무조건 1개의 대표 로그만 출력**하세요.
-                   - 제목 옆에 **(총 N건 발생)** 이라고 횟수를 명시하세요.
-                   - 똑같은 로그를 여러 줄 나열하는 것을 절대 금지합니다.
-                2. **무시할 로그 (삭제):**
-                   - 단순한 Link Up/Down, Config 저장, 정상 상태 변경
-                   - 날짜/시간(Timestamp)이 없는 텍스트
-                3. **추출할 로그 (필수):**
-                   - 하드웨어 고장, 환경 경보, 주요 프로토콜 다운
-                   - 시스템 리소스 부족, 에러 카운트 증가
+                1. **무시할 로그 (과감히 제외):**
+                   - 단순한 Link Up/Down (단발성)
+                   - Config 저장 메시지, 정상 상태 변경
+                   - 날짜/시간(Timestamp)이 없는 로그
+                2. **추출할 로그 (필수 체크):**
+                   - 하드웨어 고장, 환경 경보(온도/전압), 주요 프로토콜 다운
+                   - 시스템 리소스 부족, 반복적인 에러/플래핑
+                3. **중복 압축:** 같은 로그는 하나로 합치고 (총 N회)로 표기하세요.
 
                 [중요: 출력 순서]
-                - **로그 코드 블록(Code Block)을 무조건 맨 위**에 배치하세요.
+                - 사용자가 복사하기 편하도록 **로그 코드 블록(Code Block)을 무조건 맨 위**에 배치하세요.
                 - 설명은 코드 블록 **아래**에 적으세요.
-                - 사용자가 복사하기 편하도록 배치하는 것입니다.
 
                 [입력 데이터]
                 {final_log_content}
@@ -199,19 +197,11 @@ with tab0:
                 [출력 형식 예시]
                 ### 🚨 조치 필수 (Immediate Action)
                 
-                **1. 모듈 1번 하드웨어 고장 (총 15건 발생)**
+                **1. 모듈 1번 하드웨어 고장 (총 5회)**
                 ```
                 2024 Jan 31 21:03:03 %MODULE-2-FAILED: Module 1 failed
                 ```
                 └─ (설명) 하드웨어 교체가 필요합니다.
-
-                ### ⚠️ 정밀 점검 필요 (Investigation Needed)
-                
-                **1. 1번 슬롯 버퍼 임계값 초과 (총 342건 발생)**
-                ```
-                2024 Jan 31 22:00:00 %TAHUSD-4-BUFFER_THRESHOLD: Buffer threshold exceeded
-                ```
-                └─ (설명) 트래픽 폭주로 인한 패킷 드랍이 의심됩니다.
                 """
                 # API_KEY_OS 사용
                 classified_result = get_gemini_response(prompt, API_KEY_OS, 'os')
@@ -219,14 +209,6 @@ with tab0:
                 
     if 'classified_result' in st.session_state:
         st.markdown("---")
-        
-        # 전체 복사 버튼 (최상단)
-        col_copy_btn, col_copy_msg = st.columns([2, 5])
-        with col_copy_btn:
-            if st.button("📝 선별된 로그 전체 복사 (정밀 분석용)"):
-                 st.session_state['log_transfer'] = st.session_state['classified_result']
-                 st.success("✅ 복사 완료! 상단의 '📊 로그 정밀 분석' 탭으로 이동하세요.")
-        
         st.subheader("🎯 AI 선별 결과 (Actionable Items)")
         st.markdown(st.session_state['classified_result'])
 
@@ -235,8 +217,7 @@ with tab0:
 # ========================================================
 with tab1:
     st.header("로그 분석 및 장애 진단")
-    default_log_value = st.session_state.get('log_transfer', "")
-    log_input = st.text_area("분석할 로그를 입력하세요:", value=default_log_value, height=150, key="log_analysis_area")
+    log_input = st.text_area("분석할 로그를 입력하세요:", height=150, key="log_analysis_area")
     
     c1, c2 = st.columns([1, 6])
     with c1:
@@ -290,13 +271,11 @@ with tab2:
                 prompt = f"""
                 [대상 모델]: {model_input}
                 위 모델의 하드웨어 스펙을 표(Table)로 요약해주세요.
-                항목: Fixed Ports, Switching Capacity, Forwarding Rate, CPU/Memory, Power.
-                주요 특징 3가지 포함. 한국어 답변.
                 """
                 st.markdown(get_gemini_response(prompt, API_KEY_SPEC, 'spec'))
 
 # ========================================================
-# [TAB 3] OS 추천기
+# [TAB 3] OS 추천기 (🚨 HTML 코드 깨짐 수정)
 # ========================================================
 with tab3:
     st.header("OS 추천 및 안정성 진단")
@@ -323,23 +302,22 @@ with tab3:
         else:
             with st.spinner(f"{device_family} 데이터베이스 검색 중..."):
                 if "Nexus" in device_family:
-                    family_prompt = "당신은 Cisco Nexus(NX-OS) 전문가입니다. 반드시 **NX-OS 버전**만 추천하세요. IOS-XE 버전을 추천하면 절대 안 됩니다."
+                    family_prompt = "당신은 Cisco Nexus(NX-OS) 전문가입니다. 반드시 **NX-OS 버전**만 추천하세요."
                     search_keyword = "Nexus"
                 else:
-                    family_prompt = "당신은 Cisco Catalyst(IOS-XE) 전문가입니다. 반드시 **IOS-XE 버전**만 추천하세요. NX-OS 버전을 추천하면 절대 안 됩니다."
+                    family_prompt = "당신은 Cisco Catalyst(IOS-XE) 전문가입니다. 반드시 **IOS-XE 버전**만 추천하세요."
                     search_keyword = "Catalyst"
 
                 current_ver_query = f"Cisco {search_keyword} {os_model} {os_ver if os_ver else ''} Last Date of Support"
-                current_ver_url = f"https://www.google.com/search?q={current_ver_query.replace(' ', '+')}"
+                current_ver_url = f"[https://www.google.com/search?q=](https://www.google.com/search?q=){current_ver_query.replace(' ', '+')}"
 
                 prompt = f"""
                 {family_prompt}
                 다음 장비의 **OS 소프트웨어**를 분석하여 **HTML Table** 코드로 출력하세요.
 
                 [필수 지침]
-                1. 오직 HTML 코드만 출력하세요. (마크다운 X)
-                2. 링크는 <a href='URL' target='_blank'> 형식을 사용하세요.
-                3. 테이블 스타일: <table border='1' style='width:100%; border-collapse:collapse; text-align:left;'>
+                1. 오직 HTML 코드만 출력하세요. 
+                2. 테이블 스타일: <table border='1' style='width:100%; border-collapse:collapse; text-align:left;'>
 
                 [분석 내용]
                 - MD 및 Gold Star 버전 최우선 추천.
@@ -357,4 +335,8 @@ with tab3:
                 """
                 
                 response_html = get_gemini_response(prompt, API_KEY_OS, 'os')
+                
+                # [🚨 핵심 수정] AI가 코드를 ```html ... ``` 로 감싸서 주면 벗겨내기
+                response_html = response_html.replace("```html", "").replace("```", "")
+                
                 st.markdown(response_html, unsafe_allow_html=True)
