@@ -24,13 +24,13 @@ except Exception as e:
     st.stop()
 
 # ========================================================
-# 💾 사용량 카운터 설정
+# 💾 사용량 카운터 설정 (로그 분류/분석 통합)
 # ========================================================
+# 'class_' 키를 삭제하고 'log_'로 통합했습니다.
 usage_keys = [
     "log_lite", "log_flash", "log_pro",
     "spec_lite", "spec_flash", "spec_pro",
-    "os_lite", "os_flash", "os_pro",
-    "class_lite", "class_flash", "class_pro"
+    "os_lite", "os_flash", "os_pro"
 ]
 
 @st.cache_resource
@@ -50,10 +50,20 @@ if shared_data['date'] != today_str:
         shared_data['stats'][key] = 0
 
 # ========================================================
-# 🧹 입력창 초기화 함수
+# 🧹 [NEW] 모든 탭 입력창 초기화 함수들
 # ========================================================
 def clear_log_input():
     st.session_state["raw_log_area"] = ""
+
+def clear_analysis_input():
+    st.session_state["log_analysis_area"] = ""
+
+def clear_spec_input():
+    st.session_state["input_spec"] = ""
+
+def clear_os_input():
+    st.session_state["os_model"] = ""
+    st.session_state["os_ver"] = ""
 
 # ========================================================
 # 🤖 사이드바 설정
@@ -105,8 +115,8 @@ with st.sidebar:
         </div>
         """, unsafe_allow_html=True)
 
-    draw_usage("🚨 로그 분류 (Classify)", "class")
-    draw_usage("📊 로그 분석 (Log Key)", "log")
+    # 통합된 카운터 표시
+    draw_usage("📊 로그 분석 & 분류 (Log Key)", "log")
     draw_usage("🔍 스펙 조회 (Spec Key)", "spec")
     draw_usage("💿 OS 추천 (OS Key)", "os")
 
@@ -135,7 +145,7 @@ st.title("🛡️ Cisco Technical AI Dashboard")
 tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 분류 (New)", "📊 로그 정밀 분석", "🔍 하드웨어 스펙", "💿 OS 추천"])
 
 # ========================================================
-# [TAB 0] 로그 분류기 (심플 모드: 분석 제안만 출력)
+# [TAB 0] 로그 분류기 (심각도 분류 + 통합 카운트)
 # ========================================================
 with tab0:
     st.header("⚡ 대량 로그 자동 분류")
@@ -144,11 +154,11 @@ with tab0:
     uploaded_file = st.file_uploader("📂 로그 파일 업로드 (txt, log)", type=["txt", "log"])
     raw_log_input = st.text_area("📝 또는 여기에 로그를 직접 붙여넣으세요:", height=200, key="raw_log_area")
     
-    col_btn1, col_btn2 = st.columns([1, 5])
+    col_btn1, col_btn2 = st.columns([1, 6])
     with col_btn1:
         run_btn = st.button("로그 분류 실행", key="btn_classify")
     with col_btn2:
-        st.button("🗑️ 입력창 지우기", on_click=clear_log_input)
+        st.button("🗑️ 입력창 지우기", on_click=clear_log_input, key="clr_class")
 
     if run_btn:
         final_log_content = ""
@@ -164,32 +174,35 @@ with tab0:
         if not final_log_content:
             st.warning("로그를 입력해주세요!")
         else:
-            with st.spinner("핵심 로그 선별 중... (불필요한 정보 제거)"):
-                # [핵심 수정] 전체 목록 출력 금지 + 분석 제안만 출력 + 간략 설명 추가
+            with st.spinner("로그 심각도 분석 및 제안 생성 중..."):
+                # [수정됨] 심각도 별로 섹션을 나누어 출력하도록 프롬프트 변경
                 prompt = f"""
                 당신은 시스코 로그 분석 전문가입니다. 
-                제공된 로그 중에서 **정밀 분석이 반드시 필요한 핵심 로그(Critical/Warning 위주)**만 선별해 주세요.
+                제공된 로그 중에서 **정밀 분석이 반드시 필요한 핵심 로그**만 선별하여 심각도별로 분류해 주세요.
                 
                 [중요 지침]
-                1. **전체 로그 목록(Critical, Warning, Info 리스트)을 절대 출력하지 마세요.**
-                2. 오직 **[분석 제안]** 내용만 출력하세요.
-                3. 각 제안마다 **'간략한 한 줄 설명'**을 적고, 그 아래에 **'로그 원본'**을 코드 블록으로 작성하세요.
+                1. 전체 로그 목록 리스트는 출력하지 마세요.
+                2. 오직 **[분석 제안]** 내용만 출력하되, **Critical, Warning, Info** 섹션으로 나누세요.
+                3. 각 로그마다 '간략한 설명'과 '로그 원본(Code Block)'을 제공하세요.
 
                 [입력 로그]
                 {final_log_content}
 
                 [출력 형식 예시]
-                **1. (간략 설명) 인터페이스 링크 불안정 (Flapping) 감지**
+                ### 🔴 Critical (즉시 조치 필요)
+                **1. (간략 설명) 모듈 1번 장애 발생**
+                ```
+                %MODULE-2-FAILED: Module 1 failed
+                ```
+
+                ### 🟡 Warning (잠재적 위험)
+                **1. (간략 설명) 인터페이스 링크 불안정**
                 ```
                 %ETHPORT-5-IF_DOWN_LINK_FAILURE: Interface Ethernet1/1 is down
                 ```
-
-                **2. (간략 설명) 버퍼 임계값 초과 경고**
-                ```
-                %TAHUSD-SLOT1-4-BUFFER_THRESHOLD_EXCEEDED: Module 1 buffer threshold exceeded
-                ```
                 """
-                classified_result = get_gemini_response(prompt, API_KEY_LOG, 'class')
+                # [수정됨] 'class' 대신 'log' 키를 사용하여 카운트 통합
+                classified_result = get_gemini_response(prompt, API_KEY_LOG, 'log')
                 st.session_state['classified_result'] = classified_result 
                 st.session_state['log_transfer_buffer'] = final_log_content
                 
@@ -205,14 +218,20 @@ with tab0:
              st.success("복사되었습니다! '📊 로그 정밀 분석' 탭으로 이동하세요.")
 
 # ========================================================
-# [TAB 1] 로그 분석기
+# [TAB 1] 로그 분석기 (지우기 버튼 추가)
 # ========================================================
 with tab1:
     st.header("로그 분석 및 장애 진단")
     default_log_value = st.session_state.get('log_transfer', "")
     log_input = st.text_area("분석할 로그를 입력하세요:", value=default_log_value, height=150, key="log_analysis_area")
     
-    if st.button("로그 분석 실행", key="btn_log"):
+    c1, c2 = st.columns([1, 6])
+    with c1:
+        btn_run_log = st.button("로그 분석 실행", key="btn_log")
+    with c2:
+        st.button("🗑️ 입력창 지우기", on_click=clear_analysis_input, key="clr_anal")
+
+    if btn_run_log:
         if not log_input: st.warning("로그를 입력해주세요!")
         else:
             with st.spinner(f"AI가 로그를 분석 중입니다..."):
@@ -224,6 +243,7 @@ with tab1:
                 [PART_2](네트워크 영향)
                 [PART_3](조치 방법)
                 """
+                # 'log' 키 사용 (분류와 동일)
                 result = get_gemini_response(prompt, API_KEY_LOG, 'log')
                 try:
                     p1 = result.split("[PART_1]")[1].split("[PART_2]")[0].strip()
@@ -235,12 +255,19 @@ with tab1:
                 except: st.markdown(result)
 
 # ========================================================
-# [TAB 2] 스펙 조회기
+# [TAB 2] 스펙 조회기 (지우기 버튼 추가)
 # ========================================================
 with tab2:
     st.header("장비 하드웨어 스펙 조회")
     model_input = st.text_input("장비 모델명 (예: C9300-48P)", key="input_spec")
-    if st.button("스펙 조회 실행", key="btn_spec"):
+    
+    c1, c2 = st.columns([1, 6])
+    with c1:
+        btn_run_spec = st.button("스펙 조회 실행", key="btn_spec")
+    with c2:
+        st.button("🗑️ 입력창 지우기", on_click=clear_spec_input, key="clr_spec")
+
+    if btn_run_spec:
         if not model_input: st.warning("모델명을 입력해주세요!")
         else:
             with st.spinner("데이터시트 검색 중..."):
@@ -253,7 +280,7 @@ with tab2:
                 st.markdown(get_gemini_response(prompt, API_KEY_SPEC, 'spec'))
 
 # ========================================================
-# [TAB 3] OS 추천기
+# [TAB 3] OS 추천기 (지우기 버튼 추가)
 # ========================================================
 with tab3:
     st.header("OS 추천 및 안정성 진단")
@@ -266,10 +293,16 @@ with tab3:
     )
     
     col1, col2 = st.columns(2)
-    with col1: os_model = st.text_input("장비 모델명", placeholder="예: C9300-48P or N9K-C93180YC-FX", key="os_model")
-    with col2: os_ver = st.text_input("현재 버전 (선택)", placeholder="예: 17.09.04a or 10.2(3)", key="os_ver")
+    with col1: os_model = st.text_input("장비 모델명", placeholder="예: C9300-48P", key="os_model")
+    with col2: os_ver = st.text_input("현재 버전 (선택)", placeholder="예: 17.09.04a", key="os_ver")
         
-    if st.button("OS 분석 실행", key="btn_os"):
+    c1, c2 = st.columns([1, 6])
+    with c1:
+        btn_run_os = st.button("OS 분석 실행", key="btn_os")
+    with c2:
+        st.button("🗑️ 입력창 지우기", on_click=clear_os_input, key="clr_os")
+
+    if btn_run_os:
         if not os_model: st.warning("장비 모델명은 필수입니다!")
         else:
             with st.spinner(f"{device_family} 데이터베이스 검색 중..."):
