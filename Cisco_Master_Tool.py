@@ -2,6 +2,7 @@ import streamlit as st
 import google.generativeai as genai
 import datetime
 import os
+import io
 
 # ========================================================
 # 🎨 페이지 기본 설정
@@ -143,53 +144,46 @@ st.title("🛡️ Cisco Technical AI Dashboard")
 tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 분류 (New)", "📊 로그 정밀 분석", "🔍 하드웨어 스펙", "💿 OS 추천"])
 
 # ========================================================
-# [TAB 0] 로그 분류기 (인코딩 자동 감지 기능 추가됨)
+# [TAB 0] 로그 분류기 (모바일 업로드 강화 버전)
 # ========================================================
 with tab0:
     st.header("⚡ 대량 로그 자동 분류")
     st.caption("로그 파일을 업로드하거나, 아래 텍스트 창에 직접 붙여넣으세요.")
-    
-    # 1. 확장자 제한 완화 (.log, .txt, .out, .cfg, .csv 등)
-    uploaded_file = st.file_uploader("📂 로그 파일 업로드", type=["txt", "log", "out", "cfg", "csv"])
-    
-    raw_log_input = st.text_area("📝 또는 여기에 로그를 직접 붙여넣으세요:", height=200, key="raw_log_area")
-    
-    col_btn1, col_btn2 = st.columns([1, 6])
-    with col_btn1:
-        run_btn = st.button("로그 분류 실행", key="btn_classify")
-    with col_btn2:
-        st.button("🗑️ 입력창 지우기", on_click=clear_log_input, key="clr_class")
 
-    if run_btn:
+    # [수정] Form을 사용하여 모바일 업로드 안정성 확보
+    with st.form("upload_form", clear_on_submit=False):
+        uploaded_file = st.file_uploader("📂 로그 파일 선택 (모바일 호환)", type=["txt", "log", "out", "cfg", "csv"])
+        raw_log_input = st.text_area("📝 또는 로그 붙여넣기:", height=150, key="raw_log_area")
+        
+        # 버튼을 폼 안으로 넣음
+        submitted = st.form_submit_button("🚀 로그 분류 실행")
+
+    # 폼 밖에서 초기화 버튼
+    st.button("🗑️ 입력창 지우기", on_click=clear_log_input, key="clr_class")
+
+    if submitted:
         final_log_content = ""
         
-        # [NEW] 만능 인코딩 처리 로직
+        # 1. 파일 처리 (인코딩 자동 감지)
         if uploaded_file is not None:
             raw_bytes = uploaded_file.getvalue()
             try:
-                # 1순위: UTF-8 시도
                 final_log_content = raw_bytes.decode("utf-8")
             except UnicodeDecodeError:
                 try:
-                    # 2순위: CP949 (한국어 윈도우) 시도
                     final_log_content = raw_bytes.decode("cp949")
-                except UnicodeDecodeError:
-                    try:
-                         # 3순위: EUC-KR 시도
-                        final_log_content = raw_bytes.decode("euc-kr")
-                    except:
-                        # 최후의 수단: 에러 무시하고 읽기 (글자 좀 깨져도 읽음)
-                        final_log_content = raw_bytes.decode("utf-8", errors="ignore")
+                except:
+                    final_log_content = raw_bytes.decode("utf-8", errors="ignore")
+            st.success(f"📂 파일 '{uploaded_file.name}' 로드 성공!")
             
-            st.info(f"📂 파일 '{uploaded_file.name}' 로드 성공!")
-
+        # 2. 텍스트 입력 처리
         elif raw_log_input:
             final_log_content = raw_log_input
         
         if not final_log_content:
             st.warning("로그를 입력해주세요!")
         else:
-            with st.spinner("로그 심각도 정밀 분석 및 필터링 중..."):
+            with st.spinner("로그 심각도 정밀 분석 중..."):
                 prompt = f"""
                 당신은 시스코 전문 네트워크 엔지니어입니다.
                 제공된 로그를 **Critical, Warning, Info**로 분류하여 **[분석 제안]**을 작성하세요.
