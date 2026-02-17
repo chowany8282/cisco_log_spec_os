@@ -25,22 +25,26 @@ except Exception as e:
     st.stop()
 
 # ========================================================
-# ⏳ 사용량 카운터 초기화 (기능별 분리)
+# ⏳ 사용량 카운터 초기화 (키별 + 모델별 이중 집계)
 # ========================================================
-# 1. 오늘 날짜 확인
 today_str = datetime.date.today().isoformat()
 
-# 2. 날짜가 바뀌었거나 데이터가 없으면 '0'으로 리셋
+# 날짜가 바뀌었거나 데이터가 없으면 리셋
 if 'usage_stats' not in st.session_state or st.session_state.usage_stats['date'] != today_str:
     st.session_state.usage_stats = {
         'date': today_str,
-        'log': 0,   # 로그 분석 카운터
-        'spec': 0,  # 스펙 조회 카운터
-        'os': 0     # OS 추천 카운터
+        # 1. 키(기능)별 카운트
+        'key_log': 0,
+        'key_spec': 0,
+        'key_os': 0,
+        # 2. 모델별 카운트
+        'model_lite': 0,
+        'model_flash': 0,
+        'model_pro': 0
     }
 
 # ========================================================
-# 🤖 사이드바 설정 (카운터 별도 표시)
+# 🤖 사이드바 설정 (상세 현황판)
 # ========================================================
 with st.sidebar:
     st.header("🤖 엔진 설정")
@@ -48,48 +52,60 @@ with st.sidebar:
     # 모델 선택
     selected_model_name = st.selectbox(
         "사용할 AI 모델을 선택하세요:",
-        ("Gemini 2.5 Flash Lite (추천/가성비)", "Gemini 2.5 Flash (표준)", "Gemini 3 Flash Preview (최신)")
+        ("Gemini 2.5 Flash Lite (가성비)", "Gemini 2.5 Flash (표준)", "Gemini 3 Flash Preview (최신)")
     )
     
-    # 모델 ID 매핑
-    if "Lite" in selected_model_name: MODEL_ID = "models/gemini-2.5-flash-lite"
-    elif "Gemini 3" in selected_model_name: MODEL_ID = "models/gemini-3-flash-preview"
-    else: MODEL_ID = "models/gemini-2.5-flash"
+    # 모델 ID 및 내부 식별자 매핑
+    if "Lite" in selected_model_name: 
+        MODEL_ID = "models/gemini-2.5-flash-lite"
+        current_model_type = "model_lite"
+    elif "Gemini 3" in selected_model_name: 
+        MODEL_ID = "models/gemini-3-flash-preview"
+        current_model_type = "model_pro"
+    else: 
+        MODEL_ID = "models/gemini-2.5-flash"
+        current_model_type = "model_flash"
 
     st.success(f"현재 엔진: {MODEL_ID}")
     
     st.markdown("---")
     
-    # 📊 [NEW] 기능별 사용량 현황판
-    st.subheader("📊 API 키별 사용 현황")
-    st.caption(f"📅 기준: {today_str} (일일 리셋)")
-    
-    # 보기 좋게 메트릭(Metric) 디자인 적용
+    # 📊 현황판 1: API 키별 (탭별)
+    st.subheader("🔑 API 키별 사용량")
     c1, c2, c3 = st.columns(3)
-    with c1:
-        st.metric(label="Log", value=f"{st.session_state.usage_stats['log']}회")
-    with c2:
-        st.metric(label="Spec", value=f"{st.session_state.usage_stats['spec']}회")
-    with c3:
-        st.metric(label="OS", value=f"{st.session_state.usage_stats['os']}회")
+    with c1: st.metric(label="Log", value=f"{st.session_state.usage_stats['key_log']}회")
+    with c2: st.metric(label="Spec", value=f"{st.session_state.usage_stats['key_spec']}회")
+    with c3: st.metric(label="OS", value=f"{st.session_state.usage_stats['key_os']}회")
 
+    # 📊 현황판 2: 모델별
+    st.subheader("🤖 모델별 사용량")
+    m1, m2, m3 = st.columns(3)
+    with m1: st.metric(label="Lite", value=f"{st.session_state.usage_stats['model_lite']}회")
+    with m2: st.metric(label="Flash", value=f"{st.session_state.usage_stats['model_flash']}회")
+    with m3: st.metric(label="G3.0", value=f"{st.session_state.usage_stats['model_pro']}회")
+
+    st.caption(f"📅 기준: {today_str} (일일 리셋)")
     st.markdown("---")
     st.markdown("Created by Wan Hee Cho")
 
 # ========================================================
-# 🤖 AI 연결 함수 (타겟 지정 카운팅)
+# 🤖 AI 연결 함수 (이중 카운팅 로직)
 # ========================================================
-def get_gemini_response(prompt, current_api_key, target_feature):
+def get_gemini_response(prompt, current_api_key, target_key_type):
     """
-    target_feature: 'log', 'spec', 'os' 중 하나
+    target_key_type: 'key_log', 'key_spec', 'key_os' 중 하나
+    current_model_type: 전역 변수 사용 (model_lite, model_flash, model_pro)
     """
     try:
         genai.configure(api_key=current_api_key)
         model = genai.GenerativeModel(MODEL_ID)
         response = model.generate_content(prompt)
         
-        # [중요] 해당 기능(탭)의 카운터만 +1 증가
-        st.session_state.usage_stats[target_feature] += 1
+        # [중요] 카운트 2개 동시 증가
+        # 1. 어떤 키(탭)를 썼는지?
+        st.session_state.usage_stats[target_key_type] += 1
+        # 2. 어떤 모델을 썼는지?
+        st.session_state.usage_stats[current_model_type] += 1
         
         return response.text
     except Exception as e:
@@ -119,8 +135,8 @@ with tab1:
                 [PART_2](네트워크 영향)
                 [PART_3](조치 방법)
                 """
-                # 'log' 카운터 증가 요청
-                result = get_gemini_response(prompt, API_KEY_LOG, 'log')
+                # 'key_log' 카운터 증가 요청
+                result = get_gemini_response(prompt, API_KEY_LOG, 'key_log')
                 try:
                     p1 = result.split("[PART_1]")[1].split("[PART_2]")[0].strip()
                     p2 = result.split("[PART_2]")[1].split("[PART_3]")[0].strip()
@@ -144,8 +160,8 @@ with tab2:
                 항목: Fixed Ports, Switching Capacity, Forwarding Rate, CPU/Memory, Power.
                 주요 특징 3가지 포함. 한국어 답변.
                 """
-                # 'spec' 카운터 증가 요청
-                st.markdown(get_gemini_response(prompt, API_KEY_SPEC, 'spec'))
+                # 'key_spec' 카운터 증가 요청
+                st.markdown(get_gemini_response(prompt, API_KEY_SPEC, 'key_spec'))
 
 # [TAB 3] OS 추천기
 with tab3:
@@ -204,6 +220,6 @@ with tab3:
                    </tr>
                 </table>
                 """
-                # 'os' 카운터 증가 요청
-                response_html = get_gemini_response(prompt, API_KEY_OS, 'os')
+                # 'key_os' 카운터 증가 요청
+                response_html = get_gemini_response(prompt, API_KEY_OS, 'key_os')
                 st.markdown(response_html, unsafe_allow_html=True)
