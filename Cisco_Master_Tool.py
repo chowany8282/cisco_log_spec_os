@@ -24,10 +24,10 @@ except Exception as e:
     st.stop()
 
 # ========================================================
-# 💾 사용량 카운터 설정 (에러 수정 완료)
+# 💾 사용량 카운터 설정
 # ========================================================
 
-# 1. 카운트할 항목 정의 (이 부분이 없어서 에러가 났었습니다)
+# 1. 카운트할 항목 정의
 usage_keys = [
     "log_lite", "log_flash", "log_pro",
     "spec_lite", "spec_flash", "spec_pro",
@@ -141,16 +141,34 @@ st.title("🛡️ Cisco Technical AI Dashboard")
 
 tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 분류 (New)", "📊 로그 정밀 분석", "🔍 하드웨어 스펙", "💿 OS 추천"])
 
-# [TAB 0] 로그 분류기
+# [TAB 0] 로그 분류기 (파일 업로드 추가됨)
 with tab0:
     st.header("⚡ 대량 로그 자동 분류")
-    st.caption("복잡한 로그를 붙여넣으면 심각도(Critical/Warning/Info) 별로 분류해 드립니다.")
+    st.caption("로그 파일을 업로드하거나, 아래 텍스트 창에 직접 붙여넣으세요.")
     
-    raw_log_input = st.text_area("분류할 전체 로그를 입력하세요:", height=200, key="raw_log_area")
+    # 1. 파일 업로드 위젯
+    uploaded_file = st.file_uploader("📂 로그 파일 업로드 (txt, log)", type=["txt", "log"])
+
+    # 2. 텍스트 입력 위젯
+    raw_log_input = st.text_area("📝 또는 여기에 로그를 직접 붙여넣으세요:", height=200, key="raw_log_area")
     
     if st.button("로그 분류 실행", key="btn_classify"):
-        if not raw_log_input:
-            st.warning("로그를 입력해주세요!")
+        # 분석할 로그 결정 (파일이 있으면 파일 내용 우선 사용)
+        final_log_content = ""
+        
+        if uploaded_file is not None:
+            # 파일 읽기
+            try:
+                final_log_content = uploaded_file.getvalue().decode("utf-8")
+                st.info(f"📂 업로드된 파일 '{uploaded_file.name}'을 분석합니다.")
+            except Exception as e:
+                st.error(f"파일을 읽는 중 오류가 발생했습니다: {e}")
+        elif raw_log_input:
+            final_log_content = raw_log_input
+        
+        # 로그 내용이 없으면 경고
+        if not final_log_content:
+            st.warning("로그 파일을 업로드하거나 텍스트를 입력해주세요!")
         else:
             with st.spinner("로그 패턴 분석 및 심각도 분류 중..."):
                 prompt = f"""
@@ -158,7 +176,7 @@ with tab0:
                 아래 로그들을 분석하여 심각도(Critical, Warning, Info) 별로 분류하고 요약해주세요.
                 
                 [입력 로그]
-                {raw_log_input}
+                {final_log_content}
 
                 [출력 형식]
                 각 로그 그룹에 대해 다음과 같이 출력하세요. (마크다운 형식)
@@ -177,6 +195,8 @@ with tab0:
                 """
                 classified_result = get_gemini_response(prompt, API_KEY_LOG, 'class')
                 st.session_state['classified_result'] = classified_result 
+                # 다음 탭으로 넘길 데이터도 미리 준비
+                st.session_state['log_transfer_buffer'] = final_log_content
                 
     if 'classified_result' in st.session_state:
         st.markdown("---")
@@ -184,8 +204,9 @@ with tab0:
         st.markdown(st.session_state['classified_result'])
         st.info("💡 위 결과 중 정밀 분석하고 싶은 로그를 복사하여 '📊 로그 정밀 분석' 탭에서 분석하세요.")
         
-        if st.button("📝 원본 로그를 '로그 정밀 분석' 탭으로 복사하기"):
-             st.session_state['log_transfer'] = raw_log_input
+        if st.button("📝 분석했던 원본 로그를 '로그 정밀 분석' 탭으로 복사하기"):
+             # 아까 분석했던 그 로그 내용을 전달
+             st.session_state['log_transfer'] = st.session_state.get('log_transfer_buffer', "")
              st.success("복사되었습니다! 상단의 '📊 로그 정밀 분석' 탭을 눌러 이동하세요.")
 
 # [TAB 1] 로그 분석기
