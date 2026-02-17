@@ -114,9 +114,9 @@ with st.sidebar:
         </div>
         """, unsafe_allow_html=True)
 
-    draw_usage("📊 로그 분석 & 분류 (Log Key)", "log")
+    draw_usage("📊 로그 분석 (Log Key)", "log")
     draw_usage("🔍 스펙 조회 (Spec Key)", "spec")
-    draw_usage("💿 OS 추천 (OS Key)", "os")
+    draw_usage("💿 OS 추천 & 선별 (OS Key)", "os")  # 제목 변경됨
 
     st.markdown("---")
     st.markdown("Created by Wan Hee Cho")
@@ -140,14 +140,14 @@ def get_gemini_response(prompt, current_api_key, func_prefix):
 # ========================================================
 st.title("🛡️ Cisco Technical AI Dashboard")
 
-tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 선별 (중복압축)", "📊 로그 정밀 분석", "🔍 하드웨어 스펙", "💿 OS 추천"])
+tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 선별 (OS Key)", "📊 로그 정밀 분석", "🔍 하드웨어 스펙", "💿 OS 추천"])
 
 # ========================================================
-# [TAB 0] 로그 선별기 (중복 제거 기능 추가)
+# [TAB 0] 로그 선별기 (API 키 변경: LOG -> OS)
 # ========================================================
 with tab0:
-    st.header("⚡ 장애 로그 자동 추출 및 압축")
-    st.caption("날짜가 포함된 **Critical/Warning** 로그만 골라내고, **반복되는 로그는 하나로 압축**합니다.")
+    st.header("⚡ 장애 로그 자동 추출")
+    st.caption("OS API 키를 사용하여 **Critical/Warning** 로그를 선별하고 압축합니다.")
     
     uploaded_file = st.file_uploader("📂 로그 파일 업로드 (txt, log)", type=["txt", "log"])
     raw_log_input = st.text_area("📝 또는 여기에 로그를 직접 붙여넣으세요:", height=200, key="raw_log_area")
@@ -173,7 +173,6 @@ with tab0:
             st.warning("로그를 입력해주세요!")
         else:
             with st.spinner("🚨 중복 로그 압축 및 장애 로그 선별 중..."):
-                # [핵심 수정] 중복 제거(Compression) 지시 사항 추가
                 prompt = f"""
                 당신은 시스코 장애 분석 전문가입니다. 
                 제공된 텍스트에서 **'위험(Critical)' 및 '주의(Warning)'** 수준의 로그만 추출하여 정리하세요.
@@ -197,7 +196,8 @@ with tab0:
                 2024 Jan 31 21:05:00 %ETHPORT-5-IF_DOWN_LINK_FAILURE: Interface Ethernet1/1 is down
                 ```
                 """
-                classified_result = get_gemini_response(prompt, API_KEY_LOG, 'log')
+                # [변경점] API_KEY_OS 사용, 카운터도 'os' 사용
+                classified_result = get_gemini_response(prompt, API_KEY_OS, 'os')
                 st.session_state['classified_result'] = classified_result 
                 st.session_state['log_transfer_buffer'] = classified_result 
                 
@@ -213,7 +213,7 @@ with tab0:
              st.success("✅ 로그가 복사되었습니다! 상단의 '📊 로그 정밀 분석' 탭을 눌러 이동하세요.")
 
 # ========================================================
-# [TAB 1] 로그 분석기
+# [TAB 1] 로그 분석기 (여기는 그대로 Log Key 사용)
 # ========================================================
 with tab1:
     st.header("로그 분석 및 장애 진단")
@@ -242,6 +242,7 @@ with tab1:
                 [PART_2](네트워크 영향)
                 [PART_3](구체적인 조치 방법 및 명령어 제안)
                 """
+                # 여기는 계속 API_KEY_LOG 사용
                 result = get_gemini_response(prompt, API_KEY_LOG, 'log')
                 try:
                     p1 = result.split("[PART_1]")[1].split("[PART_2]")[0].strip()
