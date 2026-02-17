@@ -24,7 +24,7 @@ except Exception as e:
     st.stop()
 
 # ========================================================
-# 💾 사용량 카운터 설정 (원상복구)
+# 💾 사용량 카운터 설정
 # ========================================================
 usage_keys = [
     "log_lite", "log_flash", "log_pro",
@@ -49,7 +49,7 @@ if shared_data['date'] != today_str:
         shared_data['stats'][key] = 0
 
 # ========================================================
-# 🧹 입력창 초기화 함수들 (부활!)
+# 🧹 입력창 초기화 함수들
 # ========================================================
 def clear_log_input():
     st.session_state["raw_log_area"] = ""
@@ -65,7 +65,7 @@ def clear_os_input():
     st.session_state["os_ver"] = ""
 
 # ========================================================
-# 🤖 사이드바 설정 (디자인 복구)
+# 🤖 사이드바 설정
 # ========================================================
 with st.sidebar:
     st.header("🤖 엔진 설정")
@@ -90,7 +90,6 @@ with st.sidebar:
     st.markdown("### 📊 일일 누적 사용량")
     st.caption(f"📅 {today_str} 기준 (서버 유지)")
 
-    # 스타일 복구
     count_style = """
     <style>
         .usage-box { margin-bottom: 15px; padding: 10px; background-color: #f0f2f6; border-radius: 5px; }
@@ -141,26 +140,22 @@ st.title("🛡️ Cisco Technical AI Dashboard")
 tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 분류", "📊 로그 정밀 분석", "🔍 하드웨어 스펙", "💿 OS 추천"])
 
 # ========================================================
-# [TAB 0] 로그 분류기 (모바일 폼 + 삭제 버튼 + 고도화 프롬프트 복구)
+# [TAB 0] 로그 분류기
 # ========================================================
 with tab0:
     st.header("⚡ 대량 로그 자동 분류")
     st.caption("로그 파일을 업로드하거나, 아래 텍스트 창에 직접 붙여넣으세요.")
 
-    # 1. 모바일 업로드를 위한 Form 적용 (이건 유지해야 파일이 잘 올라갑니다)
     with st.form("upload_form", clear_on_submit=False):
-        # [핵심 수정] type=None으로 모든 확장자 허용
         uploaded_file = st.file_uploader("📂 로그 파일 선택 (모바일 호환)", type=None)
         raw_log_input = st.text_area("📝 또는 로그 붙여넣기:", height=200, key="raw_log_area")
         submitted = st.form_submit_button("🚀 로그 분류 실행")
 
-    # 2. 삭제 버튼 부활 (폼 밖에 둬야 작동함)
     st.button("🗑️ 입력창 지우기", on_click=clear_log_input, key="clr_class")
 
     if submitted:
         final_log_content = ""
         
-        # 파일 읽기 (인코딩 자동 해결)
         if uploaded_file is not None:
             raw_bytes = uploaded_file.getvalue()
             try:
@@ -179,7 +174,6 @@ with tab0:
             st.warning("로그를 입력해주세요!")
         else:
             with st.spinner("로그 심각도 정밀 분석 및 필터링 중..."):
-                # [복구 완료] 엔지니어 관점의 고도화된 프롬프트
                 prompt = f"""
                 당신은 시스코 전문 네트워크 엔지니어입니다.
                 제공된 로그를 **Critical, Warning, Info**로 분류하여 **[분석 제안]**을 작성하세요.
@@ -231,14 +225,15 @@ with tab0:
     if 'classified_result' in st.session_state:
         st.markdown("---")
         st.subheader("🎯 분석 제안 (Analysis Suggestion)")
-        st.markdown(st.session_state['classified_result'])
+        # [수정] unsafe_allow_html=True 추가하여 HTML 태그 적용
+        st.markdown(st.session_state['classified_result'], unsafe_allow_html=True)
         
         if st.button("📝 전체 로그를 '로그 정밀 분석' 탭으로 복사하기"):
              st.session_state['log_transfer'] = st.session_state.get('log_transfer_buffer', "")
              st.success("복사되었습니다! '📊 로그 정밀 분석' 탭으로 이동하세요.")
 
 # ========================================================
-# [TAB 1] 로그 정밀 분석 (RCA 기능 복구 + 삭제 버튼 부활)
+# [TAB 1] 로그 정밀 분석
 # ========================================================
 with tab1:
     st.header("🕵️‍♀️ 로그 심층 분석 (Root Cause Analysis)")
@@ -247,7 +242,6 @@ with tab1:
     default_log_value = st.session_state.get('log_transfer', "")
     log_input = st.text_area("분석할 로그를 입력하세요:", value=default_log_value, height=200, key="log_analysis_area")
     
-    # 버튼 배치 복구
     c1, c2 = st.columns([1, 6])
     with c1:
         btn_run_log = st.button("🚀 정밀 분석 실행", key="btn_log")
@@ -258,7 +252,6 @@ with tab1:
         if not log_input: st.warning("로그를 입력해주세요!")
         else:
             with st.spinner(f"🔍 AI가 로그의 상관관계를 분석하고 근본 원인을 찾고 있습니다..."):
-                # [복구 완료] Tier 3 엔지니어 프롬프트
                 prompt = f"""
                 당신은 Cisco 본사의 **Tier 3 TAC(Technical Assistance Center) 백본 엔지니어**입니다.
                 사용자가 제출한 로그를 바탕으로 **근본 원인(Root Cause)**을 찾아내야 합니다.
@@ -289,10 +282,10 @@ with tab1:
                 """
                 
                 result = get_gemini_response(prompt, API_KEY_LOG, 'log')
-                st.markdown(result)
+                st.markdown(result, unsafe_allow_html=True) # 여기도 HTML 허용
 
 # ========================================================
-# [TAB 2] 스펙 조회기 (삭제 버튼 부활)
+# [TAB 2] 스펙 조회기 (수정됨: <br> 태그 문제 해결)
 # ========================================================
 with tab2:
     st.header("장비 하드웨어 스펙 조회")
@@ -314,10 +307,11 @@ with tab2:
                 항목: Fixed Ports, Switching Capacity, Forwarding Rate, CPU/Memory, Power.
                 주요 특징 3가지 포함. 한국어 답변.
                 """
-                st.markdown(get_gemini_response(prompt, API_KEY_SPEC, 'spec'))
+                # [핵심 수정] unsafe_allow_html=True를 추가하여 <br> 태그가 줄바꿈으로 보이게 함
+                st.markdown(get_gemini_response(prompt, API_KEY_SPEC, 'spec'), unsafe_allow_html=True)
 
 # ========================================================
-# [TAB 3] OS 추천기 (HTML 테이블 + 삭제 버튼 부활)
+# [TAB 3] OS 추천기
 # ========================================================
 with tab3:
     st.header("OS 추천 및 안정성 진단")
@@ -377,5 +371,4 @@ with tab3:
                 <table>...</table>
                 """
                 
-                response_html = get_gemini_response(prompt, API_KEY_OS, 'os')
-                st.markdown(response_html, unsafe_allow_html=True)
+                st.markdown(get_gemini_response(prompt, API_KEY_OS, 'os'), unsafe_allow_html=True)
