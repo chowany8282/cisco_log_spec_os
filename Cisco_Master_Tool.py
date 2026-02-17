@@ -70,11 +70,11 @@ st.title("🛡️ Cisco Technical AI Dashboard")
 tab0, tab1, tab2, tab3 = st.tabs(["🚨 로그 통합 분류", "📊 정밀 분석", "🔍 스펙 조회", "💿 OS 추천"])
 
 # --------------------------------------------------------
-# [TAB 0] 로그 분류 (버그 수정: "group" 단어 오인식 해결)
+# [TAB 0] 로그 분류 (필터링 제거: 모든 로그 표시)
 # --------------------------------------------------------
 with tab0:
-    st.header("⚡ 최신 1000줄 정밀 분석 (Bug Fix)")
-    st.caption("파일의 **맨 마지막 1000줄**만 분석합니다. (Pool-group 등의 단어가 필터링되는 오류 수정됨)")
+    st.header("⚡ 최신 1000줄 전체 보기")
+    st.caption("필터링 없이 **최신 1000줄의 모든 내용**을 중복만 합쳐서 보여줍니다.")
     
     with st.form("tab0_form", clear_on_submit=False):
         uploaded_file = st.file_uploader("📂 로그 파일 선택", type=['txt', 'log'], key="uploader_tab0")
@@ -95,51 +95,56 @@ with tab0:
             
             if total_len > 1000:
                 target_lines = all_lines[-1000:]
-                msg_info = f"총 {total_len}줄 중 **최신 1000줄**만 분석했습니다."
+                msg_info = f"총 {total_len}줄 중 **최신 1000줄**을 그대로 가져왔습니다."
             else:
                 target_lines = all_lines
-                msg_info = f"총 {total_len}줄 전체를 분석했습니다. (1000줄 미만)"
+                msg_info = f"총 {total_len}줄 전체를 가져왔습니다. (1000줄 미만)"
 
             issue_counter = Counter()
             
-            # [수정됨] 이슈 키워드
-            issue_keywords = ["-0-", "-1-", "-2-", "-3-", "-4-", "traceback", "crash", "threshold", "exceeded", "buffer", "fail", "down", "error", "collision", "mismatch", "tahusd"]
+            # [핵심 수정] Issue Keyword 검사 로직 삭제!
+            # 이제 'error'나 'fail' 같은 단어가 없어도 다 보여줍니다.
             
-            # [핵심 수정] "up" 단어 삭제 -> 구체적인 문장으로 변경
-            # 이제 "Pool-group"이 "up" 때문에 사라지지 않습니다.
+            # 단, 정말 쓸모없는 노이즈(Noise)만 최소한으로 제외
             ignore_keywords = [
-                "mgmt0", "absent", "admin down", "vty", 
-                "changed state to up", "is up", "link-3-updown", # "up" 대신 구체적 명시
-                "recovery", "recovered", "online", "ready", "inserted", "removed",
-                "authentication success", "copy complete", "link-keepalive"
+                "mgmt0", "vty", "last reset", 
+                "copy complete", "link-keepalive" # 최소한의 노이즈 필터
             ]
             
             for line in target_lines:
                 line_lower = line.lower()
                 
-                # 이슈 키워드는 있고, 무시 키워드는 없는지 확인
-                if any(k in line_lower for k in issue_keywords) and not any(i in line_lower for i in ignore_keywords):
+                # 무시 키워드만 아니면 무조건 포함 (이슈 키워드 검사 X)
+                if not any(i in line_lower for i in ignore_keywords):
                     # 타임스탬프 제거 후 메시지만 추출
                     msg = line[line.find("%"):] if "%" in line else line.strip()
-                    issue_counter[msg] += 1
+                    # 빈 줄 제외
+                    if msg.strip():
+                        issue_counter[msg] += 1
             
             res_text = "\n".join([f"{m} (x {c}건)" if c > 1 else m for m, c in issue_counter.most_common()])
             st.session_state['res_class'] = res_text
             
             st.success(msg_info)
             
+            # 결과가 있으면 출력
             if issue_counter:
-                st.markdown(f"### 🚨 발견된 이슈: 총 {sum(issue_counter.values())}건")
+                # 총 건수는 중복을 합친 메시지 종류의 수가 아니라, 실제 발생한 로그 라인 수의 합(필터링 된 것 제외)
+                st.markdown(f"### 📋 최신 1000줄 요약 (총 {sum(issue_counter.values())} 라인)")
                 for m, c in issue_counter.most_common():
-                    st.code(f"{m} (x {c}건)" if c > 1 else m, language="text")
+                    # 중요해 보이는 것(Error, Fail 등)은 빨간색 강조, 나머지는 일반 코드 블록
+                    if any(x in m.lower() for x in ["error", "fail", "down", "alert", "critical", "exceeded"]):
+                        st.code(f"🔴 {m} (x {c}건)" if c > 1 else f"🔴 {m}", language="text")
+                    else:
+                        st.code(f"{m} (x {c}건)" if c > 1 else m, language="text")
             else:
-                st.info("선택된 구간(최신 1000줄) 내에서 특이사항이 발견되지 않았습니다.")
+                st.info("표시할 로그가 없습니다.")
 
     # 결과 처리 버튼들
     if st.session_state.get('res_class'):
-        st.download_button("📥 분류 결과 저장", data=st.session_state['res_class'], file_name="Recent_Issues.txt", key="dl_tab0")
+        st.download_button("📥 결과 저장", data=st.session_state['res_class'], file_name="Last_1000_Lines.txt", key="dl_tab0")
         
-        if st.button("📝 분류된 이슈만 정밀 분석으로 복사", key="copy_btn"):
+        if st.button("📝 리스트 전체를 정밀 분석으로 복사", key="copy_btn"):
             st.session_state['log_analysis_area'] = st.session_state['res_class']
             st.success("복사 완료! '📊 정밀 분석' 탭으로 이동하세요.")
 
