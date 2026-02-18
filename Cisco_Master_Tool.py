@@ -142,7 +142,7 @@ def get_gemini_response(prompt, current_api_key, func_prefix):
 # ========================================================
 st.title("🛡️ Cisco Technical AI Dashboard")
 
-tab0, tab1, tab2, tab3 = st.tabs(["📑 로그 요약 분석", "📊 심층 장애 진단", "🔍 하드웨어 스펙", "💿 OS 추천"])
+tab0, tab1, tab2, tab3 = st.tabs(["📑 로그 요약 분석", "📊 로그 정밀 진단", "🔍 하드웨어 스펙", "💿 OS 추천"])
 
 # ========================================================
 # [TAB 0] 로그 요약 분석기 (수정됨: 2가지 항목만 출력 + 코드블록 강제)
@@ -220,7 +220,7 @@ with tab0:
 # [TAB 1] 심층 장애 진단
 # ========================================================
 with tab1:
-    st.header("📊 심층 장애 진단 & 솔루션")
+    st.header("📊 로그 정밀 진단 & 솔루션")
     default_log_value = st.session_state.get('log_transfer', "")
     log_input = st.text_area("분석할 로그(또는 위에서 복사한 내용)를 입력하세요:", value=default_log_value, height=150, key="log_analysis_area")
     
@@ -338,3 +338,4 @@ with tab3:
                 response_html = response_html.replace("```html", "").replace("```", "")
                 
                 st.markdown(response_html, unsafe_allow_html=True)
+
