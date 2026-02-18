@@ -149,7 +149,7 @@ def get_gemini_response(prompt, current_api_key, func_prefix):
 st.title("🛡️Cisco Technical")
 
 # [수정] 탭 이름 변경: "심층 장애 진단" -> "로그 정밀 진단"
-tab0, tab1, tab2, tab3 = st.tabs(["📑 로그 분류", "📊 로그 정밀 진단", "🔍 하드웨어 스펙", "💿 OS 추천"])
+tab0, tab1, tab2, tab3 = st.tabs(["📑 로그 분류", "📊 로그 진단", "🔍 하드웨어 스펙", "💿 OS 추천"])
 
 # ========================================================
 # [TAB 0] 로그 요약 분석기
@@ -344,4 +344,5 @@ with tab3:
                 response_html = response_html.replace("```html", "").replace("```", "")
                 
                 st.markdown(response_html, unsafe_allow_html=True)
+
 
