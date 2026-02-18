@@ -24,21 +24,27 @@ except Exception as e:
     st.stop()
 
 # ========================================================
-# 💾 사용량 카운터 설정
+# 💾 사용량 카운터 설정 (수정됨: KST 기준 자정 초기화)
 # ========================================================
 usage_keys = ["select_cnt", "log_cnt", "spec_cnt", "os_cnt"]
 
 @st.cache_resource
-def get_shared_usage_stats():
-    stats_init = {key: 0 for key in usage_keys}
+def get_shared_store():
+    # 서버 메모리에 영구 저장될 저장소 생성 (초기값은 비워둠)
     return {
-        'date': str(datetime.date.today()),
-        'stats': stats_init
+        "date": "", 
+        "stats": {key: 0 for key in usage_keys}
     }
 
-shared_data = get_shared_usage_stats()
-today_str = str(datetime.date.today())
+# 1. 저장소 불러오기
+shared_data = get_shared_store()
 
+# 2. 한국 시간(KST, UTC+9) 기준 오늘 날짜 구하기
+# (서버 시간이 UTC여도 한국 자정에 맞춰 초기화되도록 수정)
+kst_now = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=9)
+today_str = kst_now.strftime("%Y-%m-%d")
+
+# 3. 날짜 변경 체크 및 초기화 로직 실행
 if shared_data['date'] != today_str:
     shared_data['date'] = today_str
     for key in usage_keys:
@@ -338,8 +344,3 @@ with tab3:
                 response_html = response_html.replace("```html", "").replace("```", "")
                 
                 st.markdown(response_html, unsafe_allow_html=True)
-
-
-
-
-
