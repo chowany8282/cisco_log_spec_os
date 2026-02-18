@@ -66,26 +66,26 @@ def clear_os_input():
 with st.sidebar:
     st.header("🤖 엔진 설정")
     
-    # 모델 선택 메뉴
+    # [수정] 3.0 Pro 모델을 정식 지원하도록 변경
     selected_model_name = st.selectbox(
         "사용할 AI 모델을 선택하세요:",
         (
-            "Gemini 2.5 Flash (추천: 표준/균형)", 
-            "Gemini 2.5 Lite (초고속/가성비)",
-            "Gemini 3.0 Pro (최신/고성능)"
+            "Gemini 3.0 Pro (최고 성능/정밀 분석용)",  # <-- 1순위로 배치
+            "Gemini 2.5 Flash (표준/균형)", 
+            "Gemini 2.5 Lite (초고속/가성비)"
         )
     )
     
-    # 모델 ID 매핑
-    if "2.5 Lite" in selected_model_name:
+    # [수정] 모델 ID 매핑 (3.0 Pro 연결 확실하게 수정)
+    if "3.0 Pro" in selected_model_name:
+        MODEL_ID = "models/gemini-3.0-pro"  # 3.0 Pro 정식 ID 연결
+    elif "2.5 Lite" in selected_model_name:
         MODEL_ID = "models/gemini-2.5-flash-lite"
-    elif "3.0 Pro" in selected_model_name:
-        MODEL_ID = "models/gemini-3.0-flash" 
     else: 
         MODEL_ID = "models/gemini-2.5-flash"
 
-    st.success(f"선택됨: {selected_model_name}")
-    st.caption(f"ID: {MODEL_ID}")
+    st.success(f"현재 엔진: {selected_model_name}")
+    st.caption(f"System ID: {MODEL_ID}")
     
     st.markdown("---")
     st.markdown("### 📊 일일 누적 사용량")
@@ -125,13 +125,13 @@ def get_gemini_response(prompt, current_api_key, func_prefix):
         if "429" in error_msg or "Quota" in error_msg:
             return f"""
             ### ⛔ **일일 무료 사용량 초과 (Quota Exceeded)**
-            오늘 할당된 무료 사용량을 모두 소진했습니다.
-            **💡 해결 방법:** 사이드바에서 모델을 **'Gemini 2.5 Lite'**로 변경해 보세요.
+            선택하신 **{MODEL_ID}** 모델의 하루 사용량을 다 쓰셨습니다.
+            **💡 해결 방법:** 사이드바에서 **'Gemini 2.5 Lite'**로 변경하면 계속 쓸 수 있습니다!
             """
         elif "404" in error_msg or "Not Found" in error_msg:
             return f"""
-            ### ❌ **모델 미지원 (Model Not Found)**
-            현재 계정에서 `{MODEL_ID}` 모델을 사용할 수 없습니다.
+            ### ❌ **모델 연결 실패 (Model Not Found)**
+            현재 계정 권한으로는 `{MODEL_ID}` 모델을 쓸 수 없습니다.
             **💡 해결 방법:** 사이드바에서 **'Gemini 2.5 Flash'**를 선택해 주세요.
             """
         else:
@@ -142,10 +142,11 @@ def get_gemini_response(prompt, current_api_key, func_prefix):
 # ========================================================
 st.title("🛡️ Cisco Technical AI Dashboard")
 
+# [수정] 탭 이름 변경: "심층 장애 진단" -> "로그 정밀 진단"
 tab0, tab1, tab2, tab3 = st.tabs(["📑 로그 요약 분석", "📊 로그 정밀 진단", "🔍 하드웨어 스펙", "💿 OS 추천"])
 
 # ========================================================
-# [TAB 0] 로그 요약 분석기 (수정됨: 2가지 항목만 출력 + 코드블록 강제)
+# [TAB 0] 로그 요약 분석기
 # ========================================================
 with tab0:
     st.header("📑 로그 핵심 요약 (Summary & Attention)")
@@ -175,7 +176,6 @@ with tab0:
             st.warning("분석할 로그를 입력해주세요!")
         else:
             with st.spinner(f"🤖 AI({MODEL_ID.split('/')[-1]})가 핵심 내용만 요약 중입니다..."):
-                # [수정된 프롬프트] 1번, 3번만 출력하고 로그는 코드블록으로 감싸기
                 prompt = f"""
                 당신은 Cisco 네트워크 엔지니어입니다.
                 아래 로그 파일을 분석하여 **딱 두 가지 항목**으로만 요약하세요.
@@ -211,29 +211,29 @@ with tab0:
         with col_copy_btn:
             if st.button("📝 분석 결과 전체 복사"):
                  st.session_state['log_transfer'] = st.session_state['classified_result']
-                 st.success("✅ 복사 완료! '심층 장애 진단' 탭에서 사용할 수 있습니다.")
+                 st.success("✅ 복사 완료! '로그 정밀 진단' 탭에서 사용할 수 있습니다.")
         
         st.subheader("🎯 핵심 분석 결과")
         st.markdown(st.session_state['classified_result'])
 
 # ========================================================
-# [TAB 1] 심층 장애 진단
+# [TAB 1] 로그 정밀 진단 (이름 변경 적용됨)
 # ========================================================
 with tab1:
-    st.header("📊 로그 정밀 진단 & 솔루션")
+    st.header("📊 로그 정밀 진단 & 솔루션") # [수정] 헤더 이름 변경
     default_log_value = st.session_state.get('log_transfer', "")
     log_input = st.text_area("분석할 로그(또는 위에서 복사한 내용)를 입력하세요:", value=default_log_value, height=150, key="log_analysis_area")
     
     c1, c2 = st.columns([1, 6])
     with c1:
-        btn_run_log = st.button("심층 분석 실행", key="btn_log")
+        btn_run_log = st.button("정밀 진단 실행", key="btn_log") # [수정] 버튼 이름 변경
     with c2:
         st.button("🗑️ 입력창 지우기", on_click=clear_analysis_input, key="clr_anal")
 
     if btn_run_log:
         if not log_input: st.warning("로그를 입력해주세요!")
         else:
-            with st.spinner(f"AI가 심층 진단 중입니다..."):
+            with st.spinner(f"AI가 정밀 진단 중입니다..."):
                 prompt = f"""
                 당신은 시스코 전문가입니다. 
                 아래 로그 내용을 정밀 분석하여 다음 형식으로 답하세요.
@@ -338,4 +338,3 @@ with tab3:
                 response_html = response_html.replace("```html", "").replace("```", "")
                 
                 st.markdown(response_html, unsafe_allow_html=True)
-
