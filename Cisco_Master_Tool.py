@@ -138,7 +138,7 @@ def get_gemini_response(prompt, current_api_key, func_prefix):
 # ========================================================
 # 🖥️ 메인 화면 구성
 # ========================================================
-st.title("🛡️ Cisco Technical AI Dashboard")
+st.title("🛡️ Cisco Technical")
 
 tab0, tab1, tab2, tab3 = st.tabs(["🚨 특이 로그 선별 (Anomaly)", "📊 로그 정밀 분석", "🔍 하드웨어 스펙", "💿 OS 추천"])
 
@@ -146,7 +146,7 @@ tab0, tab1, tab2, tab3 = st.tabs(["🚨 특이 로그 선별 (Anomaly)", "📊 �
 # [TAB 0] 로그 선별기 (특이사항 집중 필터링)
 # ========================================================
 with tab0:
-    st.header("⚡ 특이 로그 정밀 추출 (Significant Anomalies)")
+    st.header("⚡ 중요 로그 분류")
     st.caption("일상적인 로그는 모두 제거하고, **분석 가치가 있는 '특이 사항'**만 골라냅니다.")
     
     uploaded_file = st.file_uploader("📂 로그 파일 업로드 (txt, log)", type=["txt", "log"])
@@ -361,3 +361,4 @@ with tab3:
                 response_html = response_html.replace("```html", "").replace("```", "")
                 
                 st.markdown(response_html, unsafe_allow_html=True)
+
