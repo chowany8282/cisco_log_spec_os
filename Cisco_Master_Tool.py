@@ -24,9 +24,10 @@ except Exception as e:
     st.stop()
 
 # ========================================================
-# 💾 사용량 카운터 설정
+# 💾 사용량 카운터 설정 (수정됨: select_cnt 추가!)
 # ========================================================
-usage_keys = ["log_cnt", "spec_cnt", "os_cnt"]
+# [수정] 로그 선별(select) 카운터 추가
+usage_keys = ["select_cnt", "log_cnt", "spec_cnt", "os_cnt"]
 
 @st.cache_resource
 def get_shared_usage_stats():
@@ -61,12 +62,12 @@ def clear_os_input():
     st.session_state["os_ver"] = ""
 
 # ========================================================
-# 🤖 사이드바 설정 (최신 모델 반영)
+# 🤖 사이드바 설정 (통계 표시 수정됨!)
 # ========================================================
 with st.sidebar:
     st.header("🤖 엔진 설정")
     
-    # 모델 선택 메뉴 (최신 버전 반영)
+    # 모델 선택 메뉴 (최신 모델 반영)
     selected_model_name = st.selectbox(
         "사용할 AI 모델을 선택하세요:",
         (
@@ -92,13 +93,16 @@ with st.sidebar:
     st.markdown("### 📊 일일 누적 사용량")
     st.caption(f"📅 {today_str} 기준")
 
-    # 카운터 표시
-    log_c = shared_data['stats']['log_cnt']
+    # [수정] 카운터 표시 로직 (로그 선별 추가)
+    select_c = shared_data['stats']['select_cnt'] # 선별 횟수
+    log_c = shared_data['stats']['log_cnt']       # 정밀 분석 횟수
     spec_c = shared_data['stats']['spec_cnt']
     os_c = shared_data['stats']['os_cnt']
 
-    st.text(f"📊 로그 분석: {log_c}회")
-    st.text(f"🔍 스펙 조회: {spec_c}회")
+    # 화면에 표시
+    st.text(f"⚡ 특이선별: {select_c}회") # <-- 추가된 부분
+    st.text(f"📊 정밀분석: {log_c}회")
+    st.text(f"🔍 스펙조회: {spec_c}회")
     st.text(f"💿 OS 추천:  {os_c}회")
 
     st.markdown("---")
@@ -143,11 +147,11 @@ def get_gemini_response(prompt, current_api_key, func_prefix):
 # ========================================================
 st.title("🛡️ Cisco Technical AI Dashboard")
 
-# 탭 구성: 첫 번째 탭에 [특이 로그 선별] 추가
+# 탭 구성
 tab0, tab1, tab2, tab3 = st.tabs(["🚨 특이 로그 선별", "📊 로그 정밀 분석", "🔍 하드웨어 스펙", "💿 OS 추천"])
 
 # ========================================================
-# [TAB 0] 로그 선별기 (요청하신 기능 추가됨!)
+# [TAB 0] 로그 선별기 (카운터 연동: select)
 # ========================================================
 with tab0:
     st.header("⚡ 특이 로그 선별 (Anomaly Detection)")
@@ -201,8 +205,8 @@ with tab0:
                 [입력 데이터]
                 {final_log_content}
                 """
-                # API_KEY_LOG 사용 (로그 분석이므로)
-                classified_result = get_gemini_response(prompt, API_KEY_LOG, 'log')
+                # [수정] func_prefix='select'로 지정하여 선별 카운트 증가
+                classified_result = get_gemini_response(prompt, API_KEY_LOG, 'select')
                 st.session_state['classified_result'] = classified_result 
                 
     if 'classified_result' in st.session_state:
