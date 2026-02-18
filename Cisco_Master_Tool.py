@@ -24,9 +24,8 @@ except Exception as e:
     st.stop()
 
 # ========================================================
-# 💾 사용량 카운터 설정 (수정됨: select_cnt 추가!)
+# 💾 사용량 카운터 설정
 # ========================================================
-# [수정] 로그 선별(select) 카운터 추가
 usage_keys = ["select_cnt", "log_cnt", "spec_cnt", "os_cnt"]
 
 @st.cache_resource
@@ -62,12 +61,12 @@ def clear_os_input():
     st.session_state["os_ver"] = ""
 
 # ========================================================
-# 🤖 사이드바 설정 (통계 표시 수정됨!)
+# 🤖 사이드바 설정
 # ========================================================
 with st.sidebar:
     st.header("🤖 엔진 설정")
     
-    # 모델 선택 메뉴 (최신 모델 반영)
+    # 모델 선택 메뉴
     selected_model_name = st.selectbox(
         "사용할 AI 모델을 선택하세요:",
         (
@@ -83,7 +82,6 @@ with st.sidebar:
     elif "3.0 Pro" in selected_model_name:
         MODEL_ID = "models/gemini-3.0-flash" 
     else: 
-        # 기본값
         MODEL_ID = "models/gemini-2.5-flash"
 
     st.success(f"선택됨: {selected_model_name}")
@@ -93,15 +91,14 @@ with st.sidebar:
     st.markdown("### 📊 일일 누적 사용량")
     st.caption(f"📅 {today_str} 기준")
 
-    # [수정] 카운터 표시 로직 (로그 선별 추가)
-    select_c = shared_data['stats']['select_cnt'] # 선별 횟수
-    log_c = shared_data['stats']['log_cnt']       # 정밀 분석 횟수
+    # 카운터 표시
+    select_c = shared_data['stats']['select_cnt']
+    log_c = shared_data['stats']['log_cnt']
     spec_c = shared_data['stats']['spec_cnt']
     os_c = shared_data['stats']['os_cnt']
 
-    # 화면에 표시
-    st.text(f"⚡ 특이선별: {select_c}회") # <-- 추가된 부분
-    st.text(f"📊 정밀분석: {log_c}회")
+    st.text(f"⚡ 로그분석: {select_c}회") # 명칭 '로그분석'으로 통일
+    st.text(f"📊 정밀진단: {log_c}회")
     st.text(f"🔍 스펙조회: {spec_c}회")
     st.text(f"💿 OS 추천:  {os_c}회")
 
@@ -125,8 +122,6 @@ def get_gemini_response(prompt, current_api_key, func_prefix):
 
     except Exception as e:
         error_msg = str(e)
-        
-        # 에러 메시지 한글화 안내
         if "429" in error_msg or "Quota" in error_msg:
             return f"""
             ### ⛔ **일일 무료 사용량 초과 (Quota Exceeded)**
@@ -147,22 +142,21 @@ def get_gemini_response(prompt, current_api_key, func_prefix):
 # ========================================================
 st.title("🛡️ Cisco Technical AI Dashboard")
 
-# 탭 구성
-tab0, tab1, tab2, tab3 = st.tabs(["🚨 특이 로그 선별", "📊 로그 정밀 분석", "🔍 하드웨어 스펙", "💿 OS 추천"])
+tab0, tab1, tab2, tab3 = st.tabs(["📑 로그 요약 분석", "📊 심층 장애 진단", "🔍 하드웨어 스펙", "💿 OS 추천"])
 
 # ========================================================
-# [TAB 0] 로그 선별기 (카운터 연동: select)
+# [TAB 0] 로그 요약 분석기 (원상복구: 일반 분석 모드)
 # ========================================================
 with tab0:
-    st.header("⚡ 특이 로그 선별 (Anomaly Detection)")
-    st.caption("수많은 로그 중 **단순 알림은 버리고, 엔지니어가 봐야 할 '진짜 문제'만** 골라냅니다.")
+    st.header("📑 로그 전체 요약 및 분석 (General Log Analysis)")
+    st.caption("로그 파일을 분석하여 **전체적인 흐름과 주요 이벤트**를 요약합니다.")
     
     uploaded_file = st.file_uploader("📂 로그 파일 업로드 (txt, log)", type=["txt", "log"])
     raw_log_input = st.text_area("📝 또는 여기에 로그를 직접 붙여넣으세요:", height=200, key="raw_log_area")
     
     col_btn1, col_btn2 = st.columns([1, 6])
     with col_btn1:
-        run_btn = st.button("AI 선별 실행", key="btn_classify")
+        run_btn = st.button("분석 실행", key="btn_classify")
     with col_btn2:
         st.button("🗑️ 입력창 지우기", on_click=clear_log_input, key="clr_class")
 
@@ -180,32 +174,21 @@ with tab0:
         if not final_log_content:
             st.warning("분석할 로그를 입력해주세요!")
         else:
-            with st.spinner(f"🤖 AI({MODEL_ID.split('/')[-1]})가 노이즈를 제거하고 특이사항을 찾는 중..."):
+            with st.spinner(f"🤖 AI({MODEL_ID.split('/')[-1]})가 전체 로그를 분석 중입니다..."):
+                # [복구된 프롬프트] 너무 빡빡하게 거르지 않고, 전체적인 내용을 요약해줌
                 prompt = f"""
-                당신은 Cisco 로그 분석 전문가입니다.
-                제공된 로그에서 **'통상적인 운영 로그'는 완벽히 배제**하고, **엔지니어의 분석이 필요한 '특이 사항(Anomaly)'**만 정밀 추출하세요.
+                당신은 Cisco 네트워크 엔지니어입니다.
+                아래 로그 파일의 내용을 분석하여 **가독성 좋은 요약 리포트**를 작성하세요.
 
-                [엄격한 필터링 기준]
-                1. **완벽 제거 대상 (Whitelist - 절대 출력 금지):**
-                   - Link Up/Down, Interface Flapping (단순 포트 문제)
-                   - Config 저장, 로그인 이력, NTP/SNMP 메시지
-                   - OSPF/BGP/EIGRP 단순 Neighbor Change (Up/Down)
-                   - 일반적인 Info/Notice/Warning
-                2. **반드시 포함 대상 (Blacklist - 특이 사항):**
-                   - **System Integrity:** `Traceback`, `Crash`, `Stack dump`, `Watchdog`
-                   - **Hardware Fatal:** `Parity Error`, `ECC Error`, `ASIC Fail`, `Power Fail`
-                   - **Resource Critical:** `Malloc Fail`, `CPU Hog`, `Process Crash`
-                   - **Network:** `Storm Control`, `BPDU Guard`, `Mac Flapping`
-                3. **요약:** 동일한 특이 로그는 1개로 압축하고 (총 N회 발생)으로 표기.
-
-                [출력 레이아웃]
-                - **로그 코드 블록(Code Block)을 무조건 맨 위**에 배치하세요.
-                - 설명은 코드 블록 **아래**에 '└─' 기호를 써서 간략히 적으세요.
+                [분석 가이드]
+                1. **전체 요약:** 로그가 어떤 상황인지(정상 운영, 작업 중, 장애 상황 등) 간략히 서술하세요.
+                2. **주요 이벤트 타임라인:** 시간 순서대로 중요한 변경 사항(Link Status, Config Change 등)을 나열하세요.
+                3. **주의 사항(Attention):** Error, Warning, Fail 등 점검이 필요한 메시지는 별도로 강조하세요.
+                4. 단순 Debug 메시지나 의미 없는 반복 텍스트만 제외하고, **운영 맥락 파악에 도움되는 정보는 포함**하세요.
 
                 [입력 데이터]
                 {final_log_content}
                 """
-                # [수정] func_prefix='select'로 지정하여 선별 카운트 증가
                 classified_result = get_gemini_response(prompt, API_KEY_LOG, 'select')
                 st.session_state['classified_result'] = classified_result 
                 
@@ -215,35 +198,34 @@ with tab0:
         # 전체 복사 버튼
         col_copy_btn, col_copy_msg = st.columns([2, 5])
         with col_copy_btn:
-            if st.button("📝 선별된 로그 전체 복사 (정밀 분석용)"):
+            if st.button("📝 분석 결과 전체 복사"):
                  st.session_state['log_transfer'] = st.session_state['classified_result']
-                 st.success("✅ 복사 완료! 상단의 '📊 로그 정밀 분석' 탭으로 이동하세요.")
+                 st.success("✅ 복사 완료! '심층 장애 진단' 탭에서 사용할 수 있습니다.")
         
-        st.subheader("🎯 AI 선별 결과")
+        st.subheader("🎯 분석 결과 리포트")
         st.markdown(st.session_state['classified_result'])
 
 # ========================================================
-# [TAB 1] 로그 정밀 분석
+# [TAB 1] 심층 장애 진단
 # ========================================================
 with tab1:
-    st.header("📊 로그 정밀 분석 & 해결책")
-    # 탭 0에서 넘겨받은 데이터가 있으면 자동 입력
+    st.header("📊 심층 장애 진단 & 솔루션")
     default_log_value = st.session_state.get('log_transfer', "")
-    log_input = st.text_area("분석할 로그를 입력하세요:", value=default_log_value, height=150, key="log_analysis_area")
+    log_input = st.text_area("분석할 로그(또는 위에서 복사한 내용)를 입력하세요:", value=default_log_value, height=150, key="log_analysis_area")
     
     c1, c2 = st.columns([1, 6])
     with c1:
-        btn_run_log = st.button("로그 분석 실행", key="btn_log")
+        btn_run_log = st.button("심층 분석 실행", key="btn_log")
     with c2:
         st.button("🗑️ 입력창 지우기", on_click=clear_analysis_input, key="clr_anal")
 
     if btn_run_log:
         if not log_input: st.warning("로그를 입력해주세요!")
         else:
-            with st.spinner(f"AI가 정밀 분석 중입니다..."):
+            with st.spinner(f"AI가 심층 진단 중입니다..."):
                 prompt = f"""
                 당신은 시스코 전문가입니다. 
-                아래 로그를 정밀 분석하여 다음 형식으로 답하세요.
+                아래 로그 내용을 정밀 분석하여 다음 형식으로 답하세요.
                 
                 로그: 
                 {log_input}
