@@ -78,7 +78,7 @@ with st.sidebar:
     
     # [수정] 모델 ID 매핑 (3.0 Pro 연결 확실하게 수정)
     if "3.0 Pro" in selected_model_name:
-        MODEL_ID = "models/gemini-3.0-preview"  # 3.0 Pro 정식 ID 연결
+        MODEL_ID = "models/gemini-3.0-flash"  # 3.0 Pro 정식 ID 연결
     elif "2.5 Lite" in selected_model_name:
         MODEL_ID = "models/gemini-2.5-flash-lite"
     else: 
@@ -338,5 +338,6 @@ with tab3:
                 response_html = response_html.replace("```html", "").replace("```", "")
                 
                 st.markdown(response_html, unsafe_allow_html=True)
+
 
 
