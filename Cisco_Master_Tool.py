@@ -138,7 +138,7 @@ def get_gemini_response(prompt, current_api_key, func_prefix):
 # ========================================================
 # 🖥️ 메인 화면 구성
 # ========================================================
-st.title("🛡️ Cisco Technical")
+st.title("🛡️Cisco Technical")
 
 tab0, tab1, tab2, tab3 = st.tabs(["🚨 특이 로그 선별", "📊 로그 정밀 분석", "🔍 하드웨어 스펙", "💿 OS 추천"])
 
@@ -361,5 +361,6 @@ with tab3:
                 response_html = response_html.replace("```html", "").replace("```", "")
                 
                 st.markdown(response_html, unsafe_allow_html=True)
+
 
 
