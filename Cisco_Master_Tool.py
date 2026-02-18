@@ -20,7 +20,7 @@ try:
     API_KEY_SPEC = st.secrets["API_KEY_SPEC"]
     API_KEY_OS = st.secrets["API_KEY_OS"]
 except Exception as e:
-    st.error("🚨 **API 키를 찾을 수 없습니다.**\n\n`.streamlit/secrets.toml` 파일에 API 키가 올바르게 저장되어 있는지 확인해주세요.")
+    st.error("🚨 API 키를 찾을 수 없습니다. secrets.toml 파일을 확인해주세요.")
     st.stop()
 
 # ========================================================
@@ -61,17 +61,17 @@ def clear_os_input():
     st.session_state["os_ver"] = ""
 
 # ========================================================
-# 🤖 사이드바 설정
+# 🤖 사이드바 설정 (최신 모델 반영)
 # ========================================================
 with st.sidebar:
     st.header("🤖 엔진 설정")
     
-    # 모델 선택 메뉴
+    # 모델 선택 메뉴 (최신 버전 반영)
     selected_model_name = st.selectbox(
         "사용할 AI 모델을 선택하세요:",
         (
             "Gemini 2.5 Flash (추천: 표준/균형)", 
-            "Gemini 2.5 Lite (초고속/무료량 많음)",
+            "Gemini 2.5 Lite (초고속/가성비)",
             "Gemini 3.0 Pro (최신/고성능)"
         )
     )
@@ -82,6 +82,7 @@ with st.sidebar:
     elif "3.0 Pro" in selected_model_name:
         MODEL_ID = "models/gemini-3.0-flash" 
     else: 
+        # 기본값
         MODEL_ID = "models/gemini-2.5-flash"
 
     st.success(f"선택됨: {selected_model_name}")
@@ -104,7 +105,7 @@ with st.sidebar:
     st.markdown("Created by Wan Hee Cho")
 
 # ========================================================
-# 🤖 AI 연결 및 에러 처리 함수 (핵심 수정!)
+# 🤖 AI 연결 및 에러 처리 함수
 # ========================================================
 def get_gemini_response(prompt, current_api_key, func_prefix):
     try:
@@ -121,69 +122,36 @@ def get_gemini_response(prompt, current_api_key, func_prefix):
     except Exception as e:
         error_msg = str(e)
         
-        # 🚨 에러 메시지 '통역' 로직
-        if "429" in error_msg or "Quota" in error_msg or "ResourceExhausted" in error_msg:
+        # 에러 메시지 한글화 안내
+        if "429" in error_msg or "Quota" in error_msg:
             return f"""
             ### ⛔ **일일 무료 사용량 초과 (Quota Exceeded)**
-            
             오늘 할당된 무료 사용량을 모두 소진했습니다.
-            
-            **💡 해결 방법:**
-            1. 사이드바에서 모델을 **'Gemini 2.5 Lite'**로 변경해 보세요. (더 적은 자원을 소모합니다)
-            2. 잠시 기다렸다가 다시 시도해 주세요.
+            **💡 해결 방법:** 사이드바에서 모델을 **'Gemini 2.5 Lite'**로 변경해 보세요.
             """
-        
         elif "404" in error_msg or "Not Found" in error_msg:
             return f"""
-            ### ❌ **모델을 찾을 수 없음 (Model Not Found)**
-            
-            선택하신 모델(`{MODEL_ID}`)을 현재 사용할 수 없습니다.
-            
-            **💡 해결 방법:**
-            * 사이드바에서 **'Gemini 2.5 Flash'** 같은 다른 모델을 선택해 주세요.
+            ### ❌ **모델 미지원 (Model Not Found)**
+            현재 계정에서 `{MODEL_ID}` 모델을 사용할 수 없습니다.
+            **💡 해결 방법:** 사이드바에서 **'Gemini 2.5 Flash'**를 선택해 주세요.
             """
-            
-        elif "API key" in error_msg or "403" in error_msg:
-            return f"""
-            ### 🔑 **API 키 오류 (Auth Error)**
-            
-            API 키가 올바르지 않거나 권한이 없습니다.
-            `secrets.toml` 파일의 API 키를 다시 확인해 주세요.
-            """
-            
-        elif "500" in error_msg or "Internal" in error_msg:
-            return f"""
-            ### 🔥 **구글 서버 오류 (Server Error)**
-            
-            일시적인 구글 서버 문제입니다.
-            잠시 후 다시 버튼을 눌러주세요.
-            """
-            
         else:
-            # 그 외 알 수 없는 에러
-            return f"""
-            ### 🚨 **알 수 없는 오류 발생**
-            
-            **에러 내용:**
-            ```
-            {error_msg}
-            ```
-            잠시 후 다시 시도하거나, 모델을 변경해 보세요.
-            """
+            return f"### 🚨 시스템 에러 발생\n\n```\n{error_msg}\n```"
 
 # ========================================================
 # 🖥️ 메인 화면 구성
 # ========================================================
 st.title("🛡️ Cisco Technical AI Dashboard")
 
-tab0, tab1, tab2, tab3 = st.tabs(["🚨 특이 로그 선별 (Anomaly)", "📊 로그 정밀 분석", "🔍 하드웨어 스펙", "💿 OS 추천"])
+# 탭 구성: 첫 번째 탭에 [특이 로그 선별] 추가
+tab0, tab1, tab2, tab3 = st.tabs(["🚨 특이 로그 선별", "📊 로그 정밀 분석", "🔍 하드웨어 스펙", "💿 OS 추천"])
 
 # ========================================================
-# [TAB 0] 로그 선별기
+# [TAB 0] 로그 선별기 (요청하신 기능 추가됨!)
 # ========================================================
 with tab0:
-    st.header("⚡ 특이 로그 정밀 추출 (Significant Anomalies)")
-    st.caption("일상적인 로그는 모두 제거하고, **분석 가치가 있는 '특이 사항'**만 골라냅니다.")
+    st.header("⚡ 특이 로그 선별 (Anomaly Detection)")
+    st.caption("수많은 로그 중 **단순 알림은 버리고, 엔지니어가 봐야 할 '진짜 문제'만** 골라냅니다.")
     
     uploaded_file = st.file_uploader("📂 로그 파일 업로드 (txt, log)", type=["txt", "log"])
     raw_log_input = st.text_area("📝 또는 여기에 로그를 직접 붙여넣으세요:", height=200, key="raw_log_area")
@@ -206,49 +174,35 @@ with tab0:
             final_log_content = raw_log_input
         
         if not final_log_content:
-            st.warning("로그를 입력해주세요!")
+            st.warning("분석할 로그를 입력해주세요!")
         else:
-            with st.spinner(f"🤖 AI({MODEL_ID.split('/')[-1]})가 '특이 사항'만 정밀 분석 중..."):
+            with st.spinner(f"🤖 AI({MODEL_ID.split('/')[-1]})가 노이즈를 제거하고 특이사항을 찾는 중..."):
                 prompt = f"""
                 당신은 Cisco 로그 분석 전문가입니다.
-                제공된 로그에서 **'통상적인 운영 로그'는 배제**하고, **엔지니어의 분석이 필요한 '특이 사항(Anomaly)'**만 추출하세요.
+                제공된 로그에서 **'통상적인 운영 로그'는 완벽히 배제**하고, **엔지니어의 분석이 필요한 '특이 사항(Anomaly)'**만 정밀 추출하세요.
 
-                [필터링 기준]
-                1. **제외 대상 (출력 금지):**
-                   - Link Up/Down (단순 포트 문제), Config 저장
-                   - 날짜/시간이 없는 텍스트, 일반적인 Info/Notice
-                2. **포함 대상 (특이 사항):**
-                   - System: Traceback, Crash, Watchdog, Unexpected exception
-                   - Hardware: Parity Error, ECC Error, ASIC Fail
-                   - Resource: Malloc Fail, CPU Hog, Memory Leak
-                   - Network: Storm Control, BPDU Guard, Mac Flapping
-                3. **중복 압축:** 동일한 로그는 1개로 합치고 (총 N회 발생) 표기.
+                [엄격한 필터링 기준]
+                1. **완벽 제거 대상 (Whitelist - 절대 출력 금지):**
+                   - Link Up/Down, Interface Flapping (단순 포트 문제)
+                   - Config 저장, 로그인 이력, NTP/SNMP 메시지
+                   - OSPF/BGP/EIGRP 단순 Neighbor Change (Up/Down)
+                   - 일반적인 Info/Notice/Warning
+                2. **반드시 포함 대상 (Blacklist - 특이 사항):**
+                   - **System Integrity:** `Traceback`, `Crash`, `Stack dump`, `Watchdog`
+                   - **Hardware Fatal:** `Parity Error`, `ECC Error`, `ASIC Fail`, `Power Fail`
+                   - **Resource Critical:** `Malloc Fail`, `CPU Hog`, `Process Crash`
+                   - **Network:** `Storm Control`, `BPDU Guard`, `Mac Flapping`
+                3. **요약:** 동일한 특이 로그는 1개로 압축하고 (총 N회 발생)으로 표기.
 
                 [출력 레이아웃]
                 - **로그 코드 블록(Code Block)을 무조건 맨 위**에 배치하세요.
-                - 설명은 코드 블록 **아래**에 '└─' 기호를 써서 적으세요.
+                - 설명은 코드 블록 **아래**에 '└─' 기호를 써서 간략히 적으세요.
 
                 [입력 데이터]
                 {final_log_content}
-
-                [출력 형식 예시]
-                ### 🚨 시스템 치명적 오류 (System Critical)
-                
-                **1. 프로세스 크래시 (총 1회 발생)**
-                ```
-                2024 Jan 31 21:03:03 %SYS-2-MALLOCFAIL: Memory allocation failed...
-                ```
-                └─ (설명) 메모리 할당 실패로 인한 프로세스 종료.
-
-                ### ⚠️ 비정상 네트워크 동작
-                
-                **1. 스톰 컨트롤 감지 (총 50회 발생)**
-                ```
-                2024 Jan 31 22:00:00 %STORM_CONTROL-3-FILTERED: Broadcast storm detected
-                ```
-                └─ (설명) 브로드캐스트 스톰 발생. 루핑 점검 필요.
                 """
-                classified_result = get_gemini_response(prompt, API_KEY_OS, 'os')
+                # API_KEY_LOG 사용 (로그 분석이므로)
+                classified_result = get_gemini_response(prompt, API_KEY_LOG, 'log')
                 st.session_state['classified_result'] = classified_result 
                 
     if 'classified_result' in st.session_state:
@@ -261,14 +215,15 @@ with tab0:
                  st.session_state['log_transfer'] = st.session_state['classified_result']
                  st.success("✅ 복사 완료! 상단의 '📊 로그 정밀 분석' 탭으로 이동하세요.")
         
-        st.subheader("🎯 AI 선별 결과 (System Anomalies)")
+        st.subheader("🎯 AI 선별 결과")
         st.markdown(st.session_state['classified_result'])
 
 # ========================================================
-# [TAB 1] 로그 분석기
+# [TAB 1] 로그 정밀 분석
 # ========================================================
 with tab1:
-    st.header("로그 분석 및 장애 진단")
+    st.header("📊 로그 정밀 분석 & 해결책")
+    # 탭 0에서 넘겨받은 데이터가 있으면 자동 입력
     default_log_value = st.session_state.get('log_transfer', "")
     log_input = st.text_area("분석할 로그를 입력하세요:", value=default_log_value, height=150, key="log_analysis_area")
     
@@ -281,18 +236,18 @@ with tab1:
     if btn_run_log:
         if not log_input: st.warning("로그를 입력해주세요!")
         else:
-            with st.spinner(f"AI가 로그를 분석 중입니다..."):
+            with st.spinner(f"AI가 정밀 분석 중입니다..."):
                 prompt = f"""
                 당신은 시스코 전문가입니다. 
-                아래 제공된 로그를 분석하고 다음 형식으로 답하세요.
+                아래 로그를 정밀 분석하여 다음 형식으로 답하세요.
                 
                 로그: 
                 {log_input}
                 
                 답변 형식:
-                [PART_1](발생 원인)
+                [PART_1](발생 원인 - 기술적 상세 분석)
                 [PART_2](네트워크 영향)
-                [PART_3](조치 방법)
+                [PART_3](구체적인 조치 방법 및 명령어 제안)
                 """
                 result = get_gemini_response(prompt, API_KEY_LOG, 'log')
                 try:
@@ -302,13 +257,14 @@ with tab1:
                     st.subheader("🔴 발생 원인"); st.error(p1)
                     st.subheader("🟡 네트워크 영향"); st.warning(p2)
                     st.subheader("🟢 권장 조치"); st.success(p3)
-                except: st.markdown(result)
+                except: 
+                    st.markdown(result)
 
 # ========================================================
 # [TAB 2] 스펙 조회기
 # ========================================================
 with tab2:
-    st.header("장비 하드웨어 스펙 조회")
+    st.header("🔍 장비 하드웨어 스펙 조회")
     model_input = st.text_input("장비 모델명 (예: C9300-48P)", key="input_spec")
     
     c1, c2 = st.columns([1, 6])
@@ -332,9 +288,8 @@ with tab2:
 # [TAB 3] OS 추천기
 # ========================================================
 with tab3:
-    st.header("OS 추천 및 안정성 진단")
-    st.caption("💡 장비 계열을 먼저 선택하면 더 정확한 추천을 받을 수 있습니다.")
-
+    st.header("💿 OS 추천 및 안정성 진단")
+    
     device_family = st.radio(
         "장비 계열 선택 (Device Family)",
         ("Catalyst (IOS-XE)", "Nexus (NX-OS)"),
@@ -354,16 +309,11 @@ with tab3:
     if btn_run_os:
         if not os_model: st.warning("장비 모델명은 필수입니다!")
         else:
-            with st.spinner(f"{device_family} 데이터베이스 검색 중..."):
+            with st.spinner(f"추천 버전을 검색 중..."):
                 if "Nexus" in device_family:
                     family_prompt = "당신은 Cisco Nexus(NX-OS) 전문가입니다. 반드시 **NX-OS 버전**만 추천하세요."
-                    search_keyword = "Nexus"
                 else:
                     family_prompt = "당신은 Cisco Catalyst(IOS-XE) 전문가입니다. 반드시 **IOS-XE 버전**만 추천하세요."
-                    search_keyword = "Catalyst"
-
-                current_ver_query = f"Cisco {search_keyword} {os_model} {os_ver if os_ver else ''} Last Date of Support"
-                current_ver_url = f"https://www.google.com/search?q={current_ver_query.replace(' ', '+')}"
 
                 prompt = f"""
                 {family_prompt}
@@ -379,7 +329,6 @@ with tab3:
 
                 [대상 장비]: {os_model} ({device_family})
                 [현재 OS 버전]: {os_ver if os_ver else '정보 없음'}
-                [검증 링크]: {current_ver_url}
 
                 <h3>1. 현재 버전 상태</h3>
                 <table>...</table>
