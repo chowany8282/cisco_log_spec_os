@@ -20,17 +20,13 @@ try:
     API_KEY_SPEC = st.secrets["API_KEY_SPEC"]
     API_KEY_OS = st.secrets["API_KEY_OS"]
 except Exception as e:
-    st.error("🚨 API 키를 찾을 수 없습니다.")
+    st.error("🚨 **API 키를 찾을 수 없습니다.**\n\n`.streamlit/secrets.toml` 파일에 API 키가 올바르게 저장되어 있는지 확인해주세요.")
     st.stop()
 
 # ========================================================
 # 💾 사용량 카운터 설정
 # ========================================================
-usage_keys = [
-    "log_lite", "log_flash", "log_pro",
-    "spec_lite", "spec_flash", "spec_pro",
-    "os_lite", "os_flash", "os_pro"
-]
+usage_keys = ["log_cnt", "spec_cnt", "os_cnt"]
 
 @st.cache_resource
 def get_shared_usage_stats():
@@ -69,84 +65,124 @@ def clear_os_input():
 # ========================================================
 with st.sidebar:
     st.header("🤖 엔진 설정")
+    
+    # 모델 선택 메뉴
     selected_model_name = st.selectbox(
         "사용할 AI 모델을 선택하세요:",
-        ("Gemini 2.5 Flash Lite (가성비)", "Gemini 2.5 Flash (표준)", "Gemini 3 Flash Preview (최신)")
+        (
+            "Gemini 2.5 Flash (추천: 표준/균형)", 
+            "Gemini 2.5 Lite (초고속/무료량 많음)",
+            "Gemini 3.0 Pro (최신/고성능)"
+        )
     )
     
-    if "Lite" in selected_model_name: 
+    # 모델 ID 매핑
+    if "2.5 Lite" in selected_model_name:
         MODEL_ID = "models/gemini-2.5-flash-lite"
-        current_model_type = "lite"
-    elif "Gemini 3" in selected_model_name: 
-        MODEL_ID = "models/gemini-3-flash-preview"
-        current_model_type = "pro"
+    elif "3.0 Pro" in selected_model_name:
+        MODEL_ID = "models/gemini-3.0-flash" 
     else: 
         MODEL_ID = "models/gemini-2.5-flash"
-        current_model_type = "flash"
 
     st.success(f"선택됨: {selected_model_name}")
+    st.caption(f"ID: {MODEL_ID}")
+    
     st.markdown("---")
-
     st.markdown("### 📊 일일 누적 사용량")
-    st.caption(f"📅 {today_str} 기준 (서버 유지)")
+    st.caption(f"📅 {today_str} 기준")
 
-    count_style = """
-    <style>
-        .usage-box { margin-bottom: 15px; padding: 10px; background-color: #f0f2f6; border-radius: 5px; }
-        .usage-title { font-weight: bold; font-size: 14px; margin-bottom: 5px; color: #31333F; }
-        .usage-item { font-size: 13px; color: #555; display: flex; justify-content: space-between; }
-        .usage-num { font-weight: bold; color: #0068c9; }
-    </style>
-    """
-    st.markdown(count_style, unsafe_allow_html=True)
+    # 카운터 표시
+    log_c = shared_data['stats']['log_cnt']
+    spec_c = shared_data['stats']['spec_cnt']
+    os_c = shared_data['stats']['os_cnt']
 
-    def draw_usage(title, prefix):
-        lite = shared_data['stats'][f"{prefix}_lite"]
-        flash = shared_data['stats'][f"{prefix}_flash"]
-        pro = shared_data['stats'][f"{prefix}_pro"]
-        
-        st.markdown(f"""
-        <div class="usage-box">
-            <div class="usage-title">{title}</div>
-            <div class="usage-item"><span>🔹 Lite</span> <span class="usage-num">{lite}회</span></div>
-            <div class="usage-item"><span>⚡ Flash</span> <span class="usage-num">{flash}회</span></div>
-            <div class="usage-item"><span>🚀 Pro</span> <span class="usage-num">{pro}회</span></div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    draw_usage("📊 로그 분석 (Log Key)", "log")
-    draw_usage("🔍 스펙 조회 (Spec Key)", "spec")
-    draw_usage("💿 OS 추천 & 선별 (OS Key)", "os")
+    st.text(f"📊 로그 분석: {log_c}회")
+    st.text(f"🔍 스펙 조회: {spec_c}회")
+    st.text(f"💿 OS 추천:  {os_c}회")
 
     st.markdown("---")
     st.markdown("Created by Wan Hee Cho")
 
 # ========================================================
-# 🤖 AI 연결 함수
+# 🤖 AI 연결 및 에러 처리 함수 (핵심 수정!)
 # ========================================================
 def get_gemini_response(prompt, current_api_key, func_prefix):
     try:
         genai.configure(api_key=current_api_key)
         model = genai.GenerativeModel(MODEL_ID)
         response = model.generate_content(prompt)
-        count_key = f"{func_prefix}_{current_model_type}"
+        
+        # 성공 시 카운트 증가
+        count_key = f"{func_prefix}_cnt"
         shared_data['stats'][count_key] += 1
+        
         return response.text
+
     except Exception as e:
-        return f"System Error: {str(e)}"
+        error_msg = str(e)
+        
+        # 🚨 에러 메시지 '통역' 로직
+        if "429" in error_msg or "Quota" in error_msg or "ResourceExhausted" in error_msg:
+            return f"""
+            ### ⛔ **일일 무료 사용량 초과 (Quota Exceeded)**
+            
+            오늘 할당된 무료 사용량을 모두 소진했습니다.
+            
+            **💡 해결 방법:**
+            1. 사이드바에서 모델을 **'Gemini 2.5 Lite'**로 변경해 보세요. (더 적은 자원을 소모합니다)
+            2. 잠시 기다렸다가 다시 시도해 주세요.
+            """
+        
+        elif "404" in error_msg or "Not Found" in error_msg:
+            return f"""
+            ### ❌ **모델을 찾을 수 없음 (Model Not Found)**
+            
+            선택하신 모델(`{MODEL_ID}`)을 현재 사용할 수 없습니다.
+            
+            **💡 해결 방법:**
+            * 사이드바에서 **'Gemini 2.5 Flash'** 같은 다른 모델을 선택해 주세요.
+            """
+            
+        elif "API key" in error_msg or "403" in error_msg:
+            return f"""
+            ### 🔑 **API 키 오류 (Auth Error)**
+            
+            API 키가 올바르지 않거나 권한이 없습니다.
+            `secrets.toml` 파일의 API 키를 다시 확인해 주세요.
+            """
+            
+        elif "500" in error_msg or "Internal" in error_msg:
+            return f"""
+            ### 🔥 **구글 서버 오류 (Server Error)**
+            
+            일시적인 구글 서버 문제입니다.
+            잠시 후 다시 버튼을 눌러주세요.
+            """
+            
+        else:
+            # 그 외 알 수 없는 에러
+            return f"""
+            ### 🚨 **알 수 없는 오류 발생**
+            
+            **에러 내용:**
+            ```
+            {error_msg}
+            ```
+            잠시 후 다시 시도하거나, 모델을 변경해 보세요.
+            """
 
 # ========================================================
 # 🖥️ 메인 화면 구성
 # ========================================================
-st.title("🛡️Cisco Technical")
+st.title("🛡️ Cisco Technical AI Dashboard")
 
-tab0, tab1, tab2, tab3 = st.tabs(["🚨 특이 로그 선별", "📊 로그 정밀 분석", "🔍 하드웨어 스펙", "💿 OS 추천"])
+tab0, tab1, tab2, tab3 = st.tabs(["🚨 특이 로그 선별 (Anomaly)", "📊 로그 정밀 분석", "🔍 하드웨어 스펙", "💿 OS 추천"])
 
 # ========================================================
-# [TAB 0] 로그 선별기 (특이사항 집중 필터링)
+# [TAB 0] 로그 선별기
 # ========================================================
 with tab0:
-    st.header("⚡ 중요 로그 선별")
+    st.header("⚡ 특이 로그 정밀 추출 (Significant Anomalies)")
     st.caption("일상적인 로그는 모두 제거하고, **분석 가치가 있는 '특이 사항'**만 골라냅니다.")
     
     uploaded_file = st.file_uploader("📂 로그 파일 업로드 (txt, log)", type=["txt", "log"])
@@ -172,28 +208,25 @@ with tab0:
         if not final_log_content:
             st.warning("로그를 입력해주세요!")
         else:
-            with st.spinner("🤖 AI가 '통상적인 로그'를 제거하고 '특이 사항'만 추출 중..."):
-                # [핵심 수정] 일반 장애도 제외, 오직 '특이 사항'만 타겟팅
+            with st.spinner(f"🤖 AI({MODEL_ID.split('/')[-1]})가 '특이 사항'만 정밀 분석 중..."):
                 prompt = f"""
-                당신은 Cisco 로그 분석의 최종 권위자입니다.
-                제공된 로그에서 **'통상적인 운영 로그'는 완벽히 배제**하고, **엔지니어의 분석이 필요한 '특이 사항(Anomaly)'**만 정밀 추출하세요.
+                당신은 Cisco 로그 분석 전문가입니다.
+                제공된 로그에서 **'통상적인 운영 로그'는 배제**하고, **엔지니어의 분석이 필요한 '특이 사항(Anomaly)'**만 추출하세요.
 
-                [엄격한 필터링 기준]
-                1. **완벽 제거 대상 (Whitelist - 절대 출력 금지):**
-                   - Link Up/Down, Interface Flapping, Error-Disable (단순 포트 문제)
-                   - Config 저장, 로그인 이력, NTP/SNMP 메시지
-                   - OSPF/BGP/EIGRP 단순 Neighbor Change (Up/Down)
-                   - 일반적인 Info/Notice/Warning
-                2. **반드시 포함 대상 (Blacklist - 특이 사항):**
-                   - **System Integrity:** `Traceback`, `Crash`, `Stack dump`, `Watchdog`, `Unexpected exception`
-                   - **Hardware Fatal:** `Parity Error`, `ECC Error`, `Uncorrectable Error`, `ASIC Fail`
-                   - **Resource Critical:** `Malloc Fail`, `CPU Hog`, `Process Crash`, `Memory Leak`
-                   - **Security/Stability:** `Storm Control`, `BPDU Guard`, `Mac Flapping` (대량 발생 시), `Duplicate IP`
-                3. **요약:** 동일한 특이 로그는 1개로 압축하고 (총 N회 발생)으로 표기.
+                [필터링 기준]
+                1. **제외 대상 (출력 금지):**
+                   - Link Up/Down (단순 포트 문제), Config 저장
+                   - 날짜/시간이 없는 텍스트, 일반적인 Info/Notice
+                2. **포함 대상 (특이 사항):**
+                   - System: Traceback, Crash, Watchdog, Unexpected exception
+                   - Hardware: Parity Error, ECC Error, ASIC Fail
+                   - Resource: Malloc Fail, CPU Hog, Memory Leak
+                   - Network: Storm Control, BPDU Guard, Mac Flapping
+                3. **중복 압축:** 동일한 로그는 1개로 합치고 (총 N회 발생) 표기.
 
                 [출력 레이아웃]
                 - **로그 코드 블록(Code Block)을 무조건 맨 위**에 배치하세요.
-                - 설명은 코드 블록 **아래**에 '└─' 기호를 써서 간략히 적으세요.
+                - 설명은 코드 블록 **아래**에 '└─' 기호를 써서 적으세요.
 
                 [입력 데이터]
                 {final_log_content}
@@ -201,21 +234,20 @@ with tab0:
                 [출력 형식 예시]
                 ### 🚨 시스템 치명적 오류 (System Critical)
                 
-                **1. 프로세스 크래시 및 트레이스백 (총 1회 발생)**
+                **1. 프로세스 크래시 (총 1회 발생)**
                 ```
-                2024 Jan 31 21:03:03 %SYS-2-MALLOCFAIL: Memory allocation of 65536 bytes failed... (Traceback...)
+                2024 Jan 31 21:03:03 %SYS-2-MALLOCFAIL: Memory allocation failed...
                 ```
-                └─ (설명) 메모리 할당 실패로 인한 시스템 프로세스 종료.
+                └─ (설명) 메모리 할당 실패로 인한 프로세스 종료.
 
-                ### ⚠️ 비정상 네트워크 동작 (Network Anomaly)
+                ### ⚠️ 비정상 네트워크 동작
                 
-                **1. 스톰 컨트롤 동작 감지 (총 50회 발생)**
+                **1. 스톰 컨트롤 감지 (총 50회 발생)**
                 ```
-                2024 Jan 31 22:00:00 %STORM_CONTROL-3-FILTERED: A Broadcast storm detected on Et1/1
+                2024 Jan 31 22:00:00 %STORM_CONTROL-3-FILTERED: Broadcast storm detected
                 ```
-                └─ (설명) 브로드캐스트 스톰 발생으로 인한 트래픽 차단 동작. 루핑 점검 필요.
+                └─ (설명) 브로드캐스트 스톰 발생. 루핑 점검 필요.
                 """
-                # API_KEY_OS 사용
                 classified_result = get_gemini_response(prompt, API_KEY_OS, 'os')
                 st.session_state['classified_result'] = classified_result 
                 
@@ -252,15 +284,15 @@ with tab1:
             with st.spinner(f"AI가 로그를 분석 중입니다..."):
                 prompt = f"""
                 당신은 시스코 전문가입니다. 
-                아래 제공된 로그(또는 로그 리스트)를 정밀 분석하되, 반드시 아래 형식대로 답변하세요.
+                아래 제공된 로그를 분석하고 다음 형식으로 답하세요.
                 
                 로그: 
                 {log_input}
                 
                 답변 형식:
-                [PART_1](발생 원인 - 기술적 상세 분석)
+                [PART_1](발생 원인)
                 [PART_2](네트워크 영향)
-                [PART_3](구체적인 조치 방법 및 명령어 제안)
+                [PART_3](조치 방법)
                 """
                 result = get_gemini_response(prompt, API_KEY_LOG, 'log')
                 try:
@@ -293,7 +325,6 @@ with tab2:
                 [대상 모델]: {model_input}
                 위 모델의 하드웨어 스펙을 표(Table)로 요약해주세요.
                 항목: Fixed Ports, Switching Capacity, Forwarding Rate, CPU/Memory, Power.
-                주요 특징 3가지 포함. 한국어 답변.
                 """
                 st.markdown(get_gemini_response(prompt, API_KEY_SPEC, 'spec'))
 
@@ -361,6 +392,3 @@ with tab3:
                 response_html = response_html.replace("```html", "").replace("```", "")
                 
                 st.markdown(response_html, unsafe_allow_html=True)
-
-
-
